@@ -19,6 +19,7 @@
 
 include \
   'samza-api',
+  'samza-p2p',
   'samza-sql',
   'samza-shell'
 
