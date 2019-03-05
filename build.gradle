@@ -409,9 +409,9 @@ project(':samza-p2p') {
 
   dependencies {
     compile project(':samza-api')
-    compile "org.apache.commons:commons-lang3:$commonsLang3Version"
     compile "com.google.guava:guava:$guavaVersion"
     compile "io.netty:netty-all:$nettyVersion"
+    compile "org.apache.commons:commons-lang3:$commonsLang3Version"
     compile "org.rocksdb:rocksdbjni:$rocksdbVersion"
     compile "org.slf4j:slf4j-api:$slf4jVersion"
     testCompile "junit:junit:$junitVersion"
