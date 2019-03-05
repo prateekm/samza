@@ -1,8 +1,6 @@
 package org.apache.samza.system.p2p;
 
 import com.google.common.primitives.Ints;
-import com.google.common.primitives.Longs;
-import system.JobModel;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,26 +29,14 @@ public class Constants {
 
     public static final int NUM_CONTAINERS = 3;
     public static final Random RANDOM = new Random();
-    public static final JobModel JOB_MODEL = new JobModel();
 
     public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
     public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
 
     public static final String SERVER_HOST = "127.0.0.1";
 
-    public static final int OPCODE_LCO_INT = 0;
-    public static final byte[] OPCODE_LCO = Ints.toByteArray(OPCODE_LCO_INT);
-
     public static final int OPCODE_WRITE_INT = 1;
     public static final byte[] OPCODE_WRITE = Ints.toByteArray(OPCODE_WRITE_INT);
-
-    public static final int OPCODE_COMMIT_INT = 2;
-    public static final byte[] OPCODE_COMMIT = Ints.toByteArray(OPCODE_COMMIT_INT);
-
-    public static final int OPCODE_DELETE_INT = 3;
-    public static final byte[] OPCODE_DELETE = Ints.toByteArray(OPCODE_DELETE_INT);
-
-    public static final byte[] DELETE_PAYLOAD = Longs.toByteArray(Integer.MIN_VALUE);
 
     private static final String STATE_BASE_PATH = "state";
     private static final String TASK_STORE_BASE_PATH = "stores/task";
@@ -74,11 +60,11 @@ public class Constants {
       return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + COMMITTED_OFFSETS_BASE_PATH + "/producer/" + producerId + "/OFFSET");
     }
 
-    public static Path getConsumerOffsetFilePath(String consumerId) {
+    public static Path getConsumerOffsetFilePath(int consumerId) {
       return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + COMMITTED_OFFSETS_BASE_PATH + "/consumer/" + consumerId + "/OFFSET");
     }
 
-    public static Path getConsumerPortPath(String consumerId) {
+    public static Path getConsumerPortPath(int consumerId) {
       return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + CONSUMER_PORTS_BASE_PATH + "/consumer/" + consumerId + "/PORT");
     }
   }

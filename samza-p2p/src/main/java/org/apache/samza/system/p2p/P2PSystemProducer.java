@@ -1,5 +1,6 @@
 package org.apache.samza.system.p2p;
 
+import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
 
 import java.io.DataInputStream;
@@ -8,10 +9,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.samza.SamzaException;
 import org.apache.samza.system.OutgoingMessageEnvelope;
 import org.apache.samza.system.SystemProducer;
 import org.rocksdb.RocksDB;
@@ -23,12 +23,12 @@ public class P2PSystemProducer implements SystemProducer {
   private final int producerId;
   private final RocksDB producerDb;
   private long nextOffset; // Note: must match default value for an offset if no offset file found
-  private final Set<ConsumerConnection> consumerConnections;
+  private final Set<ConnectionHandler> connectionHandlers;
 
   public P2PSystemProducer(int producerId, RocksDB producerDb) {
     this.producerId = producerId;
     this.producerDb = producerDb;
-    this.consumerConnections = new LinkedHashSet<>();
+    this.connectionHandlers = new LinkedHashSet<>();
   }
 
   @Override
@@ -37,9 +37,9 @@ public class P2PSystemProducer implements SystemProducer {
   @Override
   public void start() {
     for (int consumerId = 0; consumerId < Constants.Common.NUM_CONTAINERS; consumerId++) {
-      consumerConnections.add(new ConsumerConnection(producerId, consumerId, producerDb));
+      connectionHandlers.add(new ConnectionHandler(producerId, consumerId, producerDb));
     }
-    consumerConnections.forEach(Thread::start);
+    connectionHandlers.forEach(Thread::start);
   }
 
   @Override
@@ -50,19 +50,20 @@ public class P2PSystemProducer implements SystemProducer {
     byte[] key = (byte[]) envelope.getKey();
     byte[] message = (byte[]) envelope.getMessage();
 
-    ByteBuffer buffer;
-    if (message != null) {
-      buffer = ByteBuffer.wrap(new byte[key.length + message.length]);
-      buffer.put(key).put(message);
-    } else {
-      buffer = ByteBuffer.wrap(new byte[key.length + Constants.Common.DELETE_PAYLOAD.length]);
-      buffer.put(key).put(Constants.Common.DELETE_PAYLOAD);
+    if (key == null || message == null) {
+      throw new SamzaException("Key and message must not be null");
     }
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[4 + key.length + 4 + message.length]); // 4 = key/message length
+    buffer.put(Ints.toByteArray(key.length))
+        .put(key)
+        .put(Ints.toByteArray(message.length))
+        .put(message);
 
     try {
       producerDb.put(Longs.toByteArray(nextOffset), buffer.array());
     } catch (Exception e) {
-      throw new RuntimeException("TODO"); // TODO
+      throw new SamzaException(String.format("Error putting data for offset: %d in the DB", nextOffset));
     }
 
     nextOffset++;
@@ -70,24 +71,24 @@ public class P2PSystemProducer implements SystemProducer {
 
   @Override
   public void flush(String source) {
-
+    // TODO implement
   }
 
-  private static class ConsumerConnection extends Thread {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ConsumerConnection.class);
-    private final Integer producerId;
-    private final String consumerId;
+  private static class ConnectionHandler extends Thread {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ConnectionHandler.class);
+    private final int producerId;
+    private final int consumerId;
     private final RocksDB producerDb;
 
-    ConsumerConnection(Integer producerId, String consumerId, RocksDB producerDb) {
-      super("ConsumerConnection " + consumerId);
+    ConnectionHandler(int producerId, int consumerId, RocksDB producerDb) {
+      super("ConnectionHandler " + consumerId);
       this.producerId = producerId;
       this.consumerId = consumerId;
       this.producerDb = producerDb;
     }
 
     public void run() {
-      LOGGER.info("ConsumerConnection handler to Consumer: {} for Producer: {} is now running.", consumerId, producerId);
+      LOGGER.info("ConnectionHandler handler to Consumer: {} for Producer: {} is now running.", consumerId, producerId);
       try {
         Socket socket = new Socket();
         socket.setTcpNoDelay(true);
@@ -106,7 +107,7 @@ public class P2PSystemProducer implements SystemProducer {
           }
         }
       } catch (Exception e) {
-        throw new RuntimeException("Error in ConsumerConnection to Consumer: " + consumerId + " in Producer: " + producerId, e);
+        throw new RuntimeException("Error in ConnectionHandler to Consumer: " + consumerId + " in Producer: " + producerId, e);
       }
     }
 
@@ -114,36 +115,41 @@ public class P2PSystemProducer implements SystemProducer {
       DataInputStream inputStream = new DataInputStream(socket.getInputStream());
       OutputStream outputStream = socket.getOutputStream();
 
-      byte[] lastSentOffset = Longs.toByteArray(0); // TODO
+      byte[] startingOffset = null;
       while(!Thread.currentThread().isInterrupted()) {
-        lastSentOffset = sendSinceOffset(outputStream, lastSentOffset);
+        startingOffset = Longs.toByteArray(Longs.fromByteArray(sendSince(startingOffset, outputStream)) + 1);
         Thread.sleep(10);
       }
     }
 
-    // returns the last offset sent to consumer (may not be committed)
-    private byte[] sendSinceOffset(OutputStream outputStream, byte[] offset) throws IOException {
-      byte[] lastSentOffset = offset;
-      // send data from DB since provided offset.
+    /**
+     * Sends all currently available data in the store since the {@code startingOffset} to the Consumer.
+     * If {@code startingOffset} is null, sends from the beginning.
+     * @return the last offset sent to consumer.
+     */
+    private byte[] sendSince(byte[] startingOffset, OutputStream outputStream) throws IOException {
+      byte[] lastSentOffset = startingOffset;
+
       RocksIterator iterator = producerDb.newIterator();
-      iterator.seek(offset);
+      if (lastSentOffset == null) {
+        iterator.seekToFirst();
+      } else {
+        iterator.seek(startingOffset);
+      }
+
       while(iterator.isValid()) {
         byte[] storedOffset = iterator.key();
-        byte[] message = iterator.value();
-        byte[] messageKey = new byte[8];
-        byte[] messageValue = new byte[8];
-        ByteBuffer wrapper = ByteBuffer.wrap(message);
-        wrapper.get(messageKey);
-        wrapper.get(messageValue);
+        byte[] keyAndMessage = iterator.value();
 
-        LOGGER.debug("Sending data for offset: {} key: {} to Consumer: {} from Producer: {}",
-            Longs.fromByteArray(storedOffset), Longs.fromByteArray(messageKey), consumerId, producerId);
+        LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
+            Longs.fromByteArray(storedOffset), consumerId, producerId);
         outputStream.write(Constants.Common.OPCODE_WRITE);
-        outputStream.write(messageKey);
-        outputStream.write(messageValue);
+        outputStream.write(storedOffset);
+        outputStream.write(keyAndMessage);
         lastSentOffset = storedOffset;
         iterator.next();
       }
+
       outputStream.flush();
       iterator.close();
       return lastSentOffset;
