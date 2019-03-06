@@ -27,23 +27,8 @@ import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
 
 public class Constants {
-  public static class Orchestrator {
-
-    public static int NUM_ITERATIONS = 1;
-    public static int TOTAL_RUNTIME_SECONDS = 600;
-    public static int MAX_RUNTIME_SECONDS = 30;
-    public static int MIN_RUNTIME_SECONDS = 20;
-    public static int INTERVAL_BETWEEN_RESTART_SECONDS = 5; // required to allow rocksdb locks to be released
-  }
-
-  public static class Task {
-    public static final int COMMIT_INTERVAL = 10000;
-    public static final int TASK_SLEEP_MS = 0;
-    public static final int MAX_NUM_MESSAGES = 100000;
-  }
-
   public static class Common {
-    public static int EXECUTION_ID = 0;
+    public static final int EXECUTION_ID = 0;
 
     public static final int NUM_CONTAINERS = 3;
     public static final Random RANDOM = new Random();

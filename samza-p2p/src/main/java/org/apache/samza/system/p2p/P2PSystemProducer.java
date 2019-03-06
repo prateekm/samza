@@ -134,7 +134,7 @@ public class P2PSystemProducer implements SystemProducer {
       OutputStream outputStream = socket.getOutputStream();
 
       byte[] startingOffset = null;
-      while(!Thread.currentThread().isInterrupted()) {
+      while (!Thread.currentThread().isInterrupted()) {
         startingOffset = Longs.toByteArray(Longs.fromByteArray(sendSince(startingOffset, outputStream)) + 1);
         Thread.sleep(10);
       }
@@ -155,7 +155,7 @@ public class P2PSystemProducer implements SystemProducer {
         iterator.seek(startingOffset);
       }
 
-      while(iterator.isValid()) {
+      while (iterator.isValid()) {
         byte[] storedOffset = iterator.key();
         byte[] keyAndMessage = iterator.value();
 
