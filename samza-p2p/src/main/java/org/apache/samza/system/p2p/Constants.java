@@ -42,29 +42,11 @@ public class Constants {
     public static final byte[] OPCODE_WRITE = Ints.toByteArray(OPCODE_WRITE_INT);
 
     private static final String STATE_BASE_PATH = "state";
-    private static final String TASK_STORE_BASE_PATH = "stores/task";
-    private static final String PRODUCER_STORE_BASE_PATH = "stores/producer";
-    private static final String COMMITTED_OFFSETS_BASE_PATH = "offsets";
+    private static final String PERSISTENT_QUEUE_BASE_PATH = "stores/producer";
     private static final String CONSUMER_PORTS_BASE_PATH = "ports";
 
-    public static String getTaskStoreBasePath() {
-      return STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + TASK_STORE_BASE_PATH;
-    }
-
-    public static String getProducerStoreBasePath() {
-      return STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + PRODUCER_STORE_BASE_PATH;
-    }
-
-    public static Path getTaskOffsetFilePath(int taskId) {
-      return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + COMMITTED_OFFSETS_BASE_PATH + "/task/" + taskId + "/MESSAGE_ID");
-    }
-
-    public static Path getProducerOffsetFilePath(int producerId) {
-      return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + COMMITTED_OFFSETS_BASE_PATH + "/producer/" + producerId + "/OFFSET");
-    }
-
-    public static Path getConsumerOffsetFilePath(int consumerId) {
-      return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + COMMITTED_OFFSETS_BASE_PATH + "/consumer/" + consumerId + "/OFFSET");
+    public static String getPersistentQueueBasePath(String queueName) {
+      return STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + PERSISTENT_QUEUE_BASE_PATH + "/" + queueName;
     }
 
     public static Path getConsumerPortPath(int consumerId) {
