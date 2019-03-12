@@ -415,7 +415,9 @@ project(':samza-p2p') {
     compile "org.rocksdb:rocksdbjni:$rocksdbVersion"
     compile "org.slf4j:slf4j-api:$slf4jVersion"
     testCompile "junit:junit:$junitVersion"
-    testCompile "org.mockito:mockito-core:$mockitoVersion"
+
+    // TODO FIX
+    testRuntime "org.slf4j:slf4j-simple:$slf4jVersion"
   }
   checkstyle {
     configFile = new File(rootDir, "checkstyle/checkstyle.xml")

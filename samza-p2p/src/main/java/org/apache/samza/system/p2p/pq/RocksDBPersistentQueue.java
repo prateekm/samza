@@ -1,6 +1,9 @@
 package org.apache.samza.system.p2p.pq;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.NoSuchElementException;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.config.Config;
@@ -16,7 +19,9 @@ public class RocksDBPersistentQueue implements PersistentQueue {
 
   RocksDBPersistentQueue(String name, Config config, MetricsRegistry metricsRegistry) throws Exception {
     this.name = name;
-    this.db = RocksDB.open(Constants.Common.DB_OPTIONS, Constants.Common.getPersistentQueueBasePath(name));
+    String storePath = Constants.Common.getPersistentQueueBasePath(name);
+    Files.createDirectories(Paths.get(storePath).getParent());
+    this.db = RocksDB.open(Constants.Common.DB_OPTIONS, storePath);
   }
 
   @Override
@@ -60,6 +65,11 @@ public class RocksDBPersistentQueue implements PersistentQueue {
     } catch (RocksDBException e) {
       throw new IOException(String.format("Error deleting data from queue: %s", name), e);
     }
+  }
+
+  @Override
+  public void close() {
+    db.close();
   }
 
   private class RocksDBPersistentQueueIterator implements PersistentQueueIterator {

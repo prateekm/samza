@@ -28,7 +28,12 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLongArray;
+import org.apache.samza.Partition;
+import org.apache.samza.SamzaException;
 import org.apache.samza.metrics.MetricsRegistry;
+import org.apache.samza.system.IncomingMessageEnvelope;
+import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.util.BlockingEnvelopeMap;
 import org.apache.samza.util.Clock;
 import org.slf4j.Logger;
@@ -37,18 +42,22 @@ import org.slf4j.LoggerFactory;
 public class P2PSystemConsumer extends BlockingEnvelopeMap {
   private static final Logger LOGGER = LoggerFactory.getLogger(P2PSystemConsumer.class);
   private final int consumerId;
-  private final Set<ConnectionHandler> connectionHandlers;
+  private final Set<ConsumerConnectionHandler> connectionHandlers;
+  private final MessageSink messageSink;
+  private final AtomicLongArray producerOffsets;
 
   public P2PSystemConsumer(int consumerId, MetricsRegistry metricsRegistry, Clock clock) {
     super(metricsRegistry, clock);
     this.consumerId = consumerId;
     this.connectionHandlers = new LinkedHashSet<>();
+    this.messageSink = new MessageSink(this);
+    this.producerOffsets = new AtomicLongArray(new long[Constants.Common.NUM_CONTAINERS]); // TODO set to num tasks
   }
 
   @Override
   public void start() {
     LOGGER.info("Consumer: {} is starting.", consumerId);
-    ConnectionHandler connectionHandler = null;
+    ConsumerConnectionHandler connectionHandler = null;
     try (ServerSocket serverSocket = new ServerSocket()) {
       serverSocket.bind(null);
       int consumerPort = serverSocket.getLocalPort();
@@ -56,7 +65,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
       while (!Thread.currentThread().isInterrupted()) {
         Socket socket = serverSocket.accept();
-        connectionHandler = new ConnectionHandler(consumerId, socket);
+        connectionHandler = new ConsumerConnectionHandler(consumerId, socket, producerOffsets, messageSink);
         connectionHandlers.add(connectionHandler);
         connectionHandler.start();
       }
@@ -68,19 +77,25 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
   @Override
   public void stop() {
-    // TODO close connection handlers, close socket.
+    connectionHandlers.forEach(ConsumerConnectionHandler::close);
+    // TODO close socket?
   }
 
-  private static class ConnectionHandler extends Thread {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ConnectionHandler.class);
-
+  private static class ConsumerConnectionHandler extends Thread {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ConsumerConnectionHandler.class);
     private final int consumerId;
     private final Socket socket;
+    private final AtomicLongArray producerOffsets;
+    private final MessageSink messageSink;
+    private int producerId;
+    private volatile boolean shutdown = false;
 
-    ConnectionHandler(int consumerId, Socket socket) {
-      super("ConnectionHandler " + consumerId);
+    ConsumerConnectionHandler(int consumerId, Socket socket, AtomicLongArray producerOffsets, MessageSink messageSink) {
+      super("ConsumerConnectionHandler " + consumerId);
       this.consumerId = consumerId;
       this.socket = socket;
+      this.producerOffsets = producerOffsets;
+      this.messageSink = messageSink;
     }
 
     @Override
@@ -89,10 +104,13 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
         DataInputStream inputStream = new DataInputStream(socket.getInputStream());
         final byte[] opCode = new byte[4]; // 4 == OPCODE length
 
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!shutdown && !Thread.currentThread().isInterrupted()) {
           inputStream.readFully(opCode);
 
           switch (Ints.fromByteArray(opCode)) {
+            case Constants.Common.OPCODE_SYNC_INT:
+              handleSync(inputStream);
+              break;
             case Constants.Common.OPCODE_WRITE_INT:
               handleWrite(inputStream);
               break;
@@ -103,27 +121,76 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       } catch (EOFException | SocketException e) {
         LOGGER.info("Shutting down connection handler in Consumer: {} due to connection close.", consumerId);
       } catch (Exception e) {
-        LOGGER.info("Shutting down connection handler in Consumer: {}", consumerId, e);
+        LOGGER.info("Error in connection handler in Consumer: {}", consumerId, e);
+        throw new SamzaException(e);
       } finally {
         try {
           socket.close();
         } catch (Exception e) {
-          LOGGER.info("Error during ConnectionHandler shutdown in Consumer: {}", consumerId, e);
+          LOGGER.info("Error during ProducerConnectionHandler shutdown in Consumer: {}", consumerId, e);
         }
       }
     }
 
-    private void handleWrite(DataInputStream inputStream) throws IOException {
-      long offset = inputStream.readLong();
-      LOGGER.trace("Received write request for offset: {} in Consumer: {}", offset, consumerId);
+    public void close() {
+      this.shutdown = true;
+      this.interrupt();
+    }
+
+    private void handleSync(DataInputStream inputStream) throws IOException {
+      byte[] producerId = new byte[4];
+      inputStream.readFully(producerId);
+      this.producerId = Ints.fromByteArray(producerId);
+    }
+
+    private void handleWrite(DataInputStream inputStream) throws IOException, InterruptedException {
+      long producerOffset = inputStream.readLong();
+      LOGGER.info("Received write request for producerOffset: {} in Consumer: {}", producerOffset, consumerId);
+
+      int systemLength = inputStream.readInt();
+      byte[] systemBytes = new byte[systemLength];
+      inputStream.readFully(systemBytes);
+
+      int streamLength = inputStream.readInt();
+      byte[] streamBytes = new byte[streamLength];
+      inputStream.readFully(streamBytes);
+
+      int partition = inputStream.readInt();
+      String systemName = new String(systemBytes);
+      String streamName = new String(streamBytes);
+      SystemStreamPartition ssp = new SystemStreamPartition(systemName, streamName, new Partition(partition));
+
+      LOGGER.info("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
 
       int keyLength = inputStream.readInt();
-      byte[] key = new byte[keyLength];
-      inputStream.readFully(key);
+      byte[] keyBytes = new byte[keyLength];
+      inputStream.readFully(keyBytes);
+
       int messageLength = inputStream.readInt();
-      byte[] message = new byte[messageLength];
-      inputStream.readFully(message);
-      // TODO put in BEM
+      byte[] messageBytes = new byte[messageLength];
+      inputStream.readFully(messageBytes);
+
+
+
+
+      producerOffsets.set(producerId, producerOffset);
+      String sspOffset = producerOffsets.toString(); // TODO verify if approx / non atomic OK.
+      IncomingMessageEnvelope ime = new IncomingMessageEnvelope(ssp, sspOffset, keyBytes, messageBytes);
+
+      // TODO verify if producerOffset should be per producer or per task?
+      messageSink.put(ssp, ime);
+    }
+  }
+
+  private class MessageSink {
+    private final P2PSystemConsumer consumer;
+
+    MessageSink(P2PSystemConsumer consumer) {
+      this.consumer = consumer;
+    }
+
+    void put(SystemStreamPartition ssp, IncomingMessageEnvelope ime) throws InterruptedException {
+      consumer.put(ssp, ime);
     }
   }
 }

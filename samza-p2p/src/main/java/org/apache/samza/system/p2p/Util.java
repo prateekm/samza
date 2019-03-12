@@ -27,12 +27,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
-import org.apache.samza.Partition;
-import org.apache.samza.job.model.JobModel;
-import org.apache.samza.system.SystemStreamPartition;
+import org.apache.samza.SamzaException;
 
 public class Util {
-  public static long readFile(Path filePath) {
+  public static long readFileLong(Path filePath) {
     try {
       return Files.isReadable(filePath)
           ? Longs.fromByteArray(Files.readAllBytes(filePath))
@@ -42,11 +40,30 @@ public class Util {
     }
   }
 
+  public static String readFileString(Path filePath) throws Exception {
+    if (Files.isReadable(filePath)) {
+     return new String(Files.readAllBytes(filePath));
+    } else {
+      throw new SamzaException("Cannot read file at path: " + filePath);
+    }
+  }
+
   public static void writeFile(Path filePath, long content) throws Exception {
     Files.createDirectories(filePath.getParent());
     Files.write(
         filePath,
         Longs.toByteArray(content),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING,
+        StandardOpenOption.WRITE,
+        StandardOpenOption.SYNC);
+  }
+
+  public static void writeFile(Path filePath, String content) throws Exception {
+    Files.createDirectories(filePath.getParent());
+    Files.write(
+        filePath,
+        content.getBytes(),
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING,
         StandardOpenOption.WRITE,
@@ -110,18 +127,34 @@ public class Util {
     return h;
   }
 
-  public static int getConsumerFor(byte[] key, JobModel jobModel) {
-    int partition = getPartitionFor(key, getNumPartitions(jobModel));
-    // TODO implement; look up task for partition then container for task.
-    return partition;
+//  public static int getConsumerFor(byte[] key, JobModel jobModel) {
+//    int partition = getPartitionFor(key, getNumPartitions(jobModel));
+//    // TODO implement; look up task for partition then container for task.
+//    return partition;
+//  }
+//
+//  public static int getPartitionFor(byte[] key, int numPartitions) {
+//    return toPositive(murmur2(key)) % numPartitions;
+//  }
+//
+//  public static int getNumPartitions(JobModel jobModel) {
+//    return getTaskNames(jobModel).size();
+//  }
+//
+  public static long[] parseOffsets(String s) {
+    if (s == null || s.length() < 2) {
+      throw new IllegalArgumentException(String.format("Invalid offset vector: %s", s));
+    }
+    String[] parts = s.substring(1, s.length() - 1).split(",");
+    long[] offsets = new long[parts.length];
+    for (int i = 0; i < parts.length; i++) {
+      offsets[i] = Long.valueOf(parts[i]);
+    }
+    return offsets;
   }
-
-  private static int getPartitionFor(byte[] key, int numPartitions) {
-    return toPositive(murmur2(key)) % numPartitions;
-  }
-
-  private static int getNumPartitions(JobModel jobModel) {
-    // TODO implement; look up num tasks. assume num partitions == num tasks.
-    return Constants.Common.NUM_CONTAINERS;
-  }
+//
+//  public static List<TaskName> getTaskNames(JobModel jobModel) {
+//    return jobModel.getContainers().values().stream()
+//        .flatMap(cm -> cm.getTasks().keySet().stream()).collect(Collectors.toList());
+//  }
 }
