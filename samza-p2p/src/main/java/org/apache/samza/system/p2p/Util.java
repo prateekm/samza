@@ -25,7 +25,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileAttribute;
 import java.util.Comparator;
 import org.apache.samza.SamzaException;
 
@@ -41,33 +43,39 @@ public class Util {
   }
 
   public static String readFileString(Path filePath) throws Exception {
-    if (Files.isReadable(filePath)) {
-     return new String(Files.readAllBytes(filePath));
+    if (Files.exists(filePath)) {
+      return new String(Files.readAllBytes(filePath));
     } else {
-      throw new SamzaException("Cannot read file at path: " + filePath);
+      throw new SamzaException("File does not exist at path: " + filePath);
     }
   }
 
   public static void writeFile(Path filePath, long content) throws Exception {
-    Files.createDirectories(filePath.getParent());
+    Path baseDir = filePath.getParent();
+    Files.createDirectories(baseDir);
+    Path tempFile = Files.createTempFile(baseDir, "temp-", "-temp");
     Files.write(
-        filePath,
+        tempFile,
         Longs.toByteArray(content),
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING,
         StandardOpenOption.WRITE,
         StandardOpenOption.SYNC);
+    Files.move(tempFile, filePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
   }
 
   public static void writeFile(Path filePath, String content) throws Exception {
-    Files.createDirectories(filePath.getParent());
+    Path baseDir = filePath.getParent();
+    Files.createDirectories(baseDir);
+    Path tempFile = Files.createTempFile(baseDir, "temp", "temp");
     Files.write(
-        filePath,
+        tempFile,
         content.getBytes(),
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING,
         StandardOpenOption.WRITE,
         StandardOpenOption.SYNC);
+    Files.move(tempFile, filePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
   }
 
   public static void rmrf(String path) throws IOException {
@@ -148,13 +156,13 @@ public class Util {
     String[] parts = s.substring(1, s.length() - 1).split(",");
     long[] offsets = new long[parts.length];
     for (int i = 0; i < parts.length; i++) {
-      offsets[i] = Long.valueOf(parts[i]);
+      offsets[i] = Long.valueOf(parts[i].trim());
     }
     return offsets;
   }
 //
 //  public static List<TaskName> getTaskNames(JobModel jobModel) {
 //    return jobModel.getContainers().values().stream()
-//        .flatMap(cm -> cm.getTasks().keySet().stream()).collect(Collectors.toList());
+//        .flatMap(cm -> cm.getAllTasks().keySet().stream()).collect(Collectors.toList());
 //  }
 }

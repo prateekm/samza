@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.samza.checkpoint.CheckpointManager;
 import org.apache.samza.container.TaskName;
+import org.apache.samza.system.p2p.JobInfo;
 import org.apache.samza.system.p2p.Util;
 
 public class KCMWatcher implements CheckpointWatcher {
@@ -19,7 +20,7 @@ public class KCMWatcher implements CheckpointWatcher {
     this.allTasks = allTasks;
   }
 
-  public void updatePeriodically(String systemName, int producerId, AtomicLong minCheckpointedOffset) {
+  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo, AtomicLong minCheckpointedOffset) {
     allTasks.forEach(checkpointManager::register);
     checkpointManager.start();
     this.watcherThread = new Thread(() -> {

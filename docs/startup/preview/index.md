@@ -542,7 +542,7 @@ Embedded deployment is designed to help users who want more control over the dep
 Additionally, each processor requires a unique ID to be used with the coordination service. If location affinity is important, this ID should be unique for each processor on a specific hostname (assuming local Storage services). To address this requirement, Samza uses a [ProcessorIdGenerator](/learn/documentation/{{site.version}}/api/javadocs/org/apache/samza/runtime/ProcessorIdGenerator.html) to provide the ID for each processor. If no generator is explicitly configured, the default one will create a UUID for each processor.
 
 #### Configuration
-To run an embedded Samza processor, you need to configure the coordinator service using the *job.coordinator.factory* property. Also, there is currently one taskname grouper that supports embedded mode, so you must configure that explicitly.
+To run an embedded Samza processor, you need to configure the coordinator service using the *job.coordinator.factory* property. Also, there is currently one taskName grouper that supports embedded mode, so you must configure that explicitly.
 
 Let’s take a look at how to configure the two coordination service implementations that ship with Samza.
 
@@ -591,7 +591,7 @@ You can deploy the application instances in any way you prefer. If using the coo
 ### Known issues
 Take note of the following issues with the embedded deployment feature for the 0.13.0 release. They will be fixed in a subsequent release.
 
-* The GroupByContainerCount default taskname grouper isn’t supported.
+* The GroupByContainerCount default taskName grouper isn’t supported.
 * Host affinity is not enabled.
 * ZkJobCoordinator metrics are not provided yet. Metrics will soon be added for
     * Number of JobModel recalculations

@@ -51,7 +51,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     this.consumerId = consumerId;
     this.connectionHandlers = new LinkedHashSet<>();
     this.messageSink = new MessageSink(this);
-    this.producerOffsets = new AtomicLongArray(new long[Constants.Common.NUM_CONTAINERS]); // TODO set to num tasks
+    this.producerOffsets = new AtomicLongArray(new long[Constants.NUM_CONTAINERS]); // TODO set to num tasks?
   }
 
   @Override
@@ -61,7 +61,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     try (ServerSocket serverSocket = new ServerSocket()) {
       serverSocket.bind(null);
       int consumerPort = serverSocket.getLocalPort();
-      Util.writeFile(Constants.Common.getConsumerPortPath(consumerId), consumerPort);
+      Util.writeFile(Constants.getConsumerPortPath(consumerId), consumerPort);
 
       while (!Thread.currentThread().isInterrupted()) {
         Socket socket = serverSocket.accept();
@@ -108,10 +108,10 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
           inputStream.readFully(opCode);
 
           switch (Ints.fromByteArray(opCode)) {
-            case Constants.Common.OPCODE_SYNC_INT:
+            case Constants.OPCODE_SYNC_INT:
               handleSync(inputStream);
               break;
-            case Constants.Common.OPCODE_WRITE_INT:
+            case Constants.OPCODE_WRITE_INT:
               handleWrite(inputStream);
               break;
             default:
@@ -145,7 +145,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
     private void handleWrite(DataInputStream inputStream) throws IOException, InterruptedException {
       long producerOffset = inputStream.readLong();
-      LOGGER.info("Received write request for producerOffset: {} in Consumer: {}", producerOffset, consumerId);
+      LOGGER.trace("Received write request for producer: {} with offset: {} in Consumer: {}", producerId, producerOffset, consumerId);
 
       int systemLength = inputStream.readInt();
       byte[] systemBytes = new byte[systemLength];
@@ -160,7 +160,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       String streamName = new String(streamBytes);
       SystemStreamPartition ssp = new SystemStreamPartition(systemName, streamName, new Partition(partition));
 
-      LOGGER.info("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
+      LOGGER.trace("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
 
       int keyLength = inputStream.readInt();
       byte[] keyBytes = new byte[keyLength];
@@ -169,9 +169,6 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       int messageLength = inputStream.readInt();
       byte[] messageBytes = new byte[messageLength];
       inputStream.readFully(messageBytes);
-
-
-
 
       producerOffsets.set(producerId, producerOffset);
       String sspOffset = producerOffsets.toString(); // TODO verify if approx / non atomic OK.

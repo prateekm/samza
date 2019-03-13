@@ -2,6 +2,7 @@ package org.apache.samza.system.p2p;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -9,15 +10,15 @@ import org.apache.samza.Partition;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.SystemStreamPartition;
 
-public class SCSTJobInfo implements JobInfo {
+public class SCMTJobInfo implements JobInfo {
   @Override
   public int getNumPartitions() {
-    return 1;
+    return Constants.NUM_PARTITIONS;
   }
 
   @Override
   public int getPartitionFor(byte[] key) {
-    return 0;
+    return Util.toPositive(Util.murmur2(key)) % getNumPartitions();
   }
 
   @Override
@@ -27,7 +28,11 @@ public class SCSTJobInfo implements JobInfo {
 
   @Override
   public List<TaskName> getAllTasks() {
-    return ImmutableList.of(new TaskName("Partition 0"));
+    ArrayList<TaskName> taskNames = new ArrayList<>();
+    for (int i = 0; i < getNumPartitions(); i++) {
+      taskNames.add(new TaskName("Partition " + i));
+    }
+    return taskNames;
   }
 
   @Override

@@ -1,9 +1,12 @@
 package org.apache.samza.system.p2p.pq;
 
+import com.google.common.primitives.Longs;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.NoSuchElementException;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.config.Config;
@@ -12,16 +15,19 @@ import org.apache.samza.system.p2p.Constants;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RocksDBPersistentQueue implements PersistentQueue {
+  private static final Logger LOGGER = LoggerFactory.getLogger(RocksDBPersistentQueue.class);
   private final String name;
   private final RocksDB db;
 
   RocksDBPersistentQueue(String name, Config config, MetricsRegistry metricsRegistry) throws Exception {
     this.name = name;
-    String storePath = Constants.Common.getPersistentQueueBasePath(name);
+    String storePath = Constants.getPersistentQueueBasePath(name);
     Files.createDirectories(Paths.get(storePath).getParent());
-    this.db = RocksDB.open(Constants.Common.DB_OPTIONS, storePath);
+    this.db = RocksDB.open(Constants.DB_OPTIONS, storePath);
   }
 
   @Override
@@ -36,7 +42,7 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   @Override
   public void flush() throws IOException {
     try {
-      db.flush(Constants.Common.FLUSH_OPTIONS);
+      db.flush(Constants.FLUSH_OPTIONS);
     } catch (RocksDBException e) {
       throw new IOException(String.format("Error flushing data to db for queue: %s", name), e);
     }
@@ -55,12 +61,21 @@ public class RocksDBPersistentQueue implements PersistentQueue {
 
   @Override
   public void deleteUpto(byte[] endId) throws IOException {
+    // TODO issue with concurrent access / non-existent endId?
     try {
       RocksIterator iterator = db.newIterator();
       iterator.seekToFirst();
       if (iterator.isValid()) {
         byte[] startingId = iterator.key();
-        db.deleteRange(startingId, endId);
+        iterator.close();
+        long startingIdLong = Longs.fromByteArray(startingId); // TODO remove long assumption
+        long endIdLong = Longs.fromByteArray(endId);
+        if (endIdLong > startingIdLong) {
+          LOGGER.trace("Deleting data from startingId: {} to endId: {}", startingId, endId);
+          db.deleteRange(startingId, endId);
+        }
+      } else {
+        iterator.close();
       }
     } catch (RocksDBException e) {
       throw new IOException(String.format("Error deleting data from queue: %s", name), e);

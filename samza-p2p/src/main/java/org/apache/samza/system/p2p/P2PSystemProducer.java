@@ -27,6 +27,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.file.NoSuchFileException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -66,7 +67,7 @@ public class P2PSystemProducer implements SystemProducer {
     this.systemName = systemName;
     this.producerId = producerId;
     this.persistentQueueFactory = persistentQueueFactory;
-    this.checkpointWatcher = checkpointWatcherFactory.getCheckpointWatcher(config, jobInfo.getTasks(), metricsRegistry);
+    this.checkpointWatcher = checkpointWatcherFactory.getCheckpointWatcher(config, jobInfo.getAllTasks(), metricsRegistry);
     this.config = config;
     this.metricsRegistry = metricsRegistry;
     this.jobInfo = jobInfo;
@@ -81,16 +82,20 @@ public class P2PSystemProducer implements SystemProducer {
   @Override
   public void start() {
     try {
-      for (int consumerId = 0; consumerId < Constants.Common.NUM_CONTAINERS; consumerId++) {
+      for (int consumerId = 0; consumerId < Constants.NUM_CONTAINERS; consumerId++) {
+        try {
+          Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
+        } catch (NoSuchFileException e) {}
+
         PersistentQueue persistentQueue =
-            persistentQueueFactory.getPersistentQueue(String.valueOf(consumerId), config, metricsRegistry);
+            persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
         persistentQueues.put(String.valueOf(consumerId), persistentQueue);
         connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue));
       }
       connectionHandlers.forEach(Thread::start);
-      checkpointWatcher.updatePeriodically(systemName, producerId, minCheckpointedOffset);
+      checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, minCheckpointedOffset);
     } catch (Exception e) {
-      throw new SamzaException("Unable to start P2PSystemConsumer", e);
+      throw new SamzaException("Unable to start P2PSystemProducer", e);
     }
   }
 
@@ -108,8 +113,7 @@ public class P2PSystemProducer implements SystemProducer {
     byte[] key = (byte[]) envelope.getKey();
     byte[] message = (byte[]) envelope.getMessage();
 
-    int numPartitions = jobInfo.getNumPartitions();
-    int partition = jobInfo.getPartitionFor(key, numPartitions);
+    int partition = jobInfo.getPartitionFor(key);
 
     if (key == null || message == null) {
       throw new SamzaException("Key and message must not be null");
@@ -124,22 +128,19 @@ public class P2PSystemProducer implements SystemProducer {
         .put(Ints.toByteArray(key.length)).put(key)
         .put(Ints.toByteArray(message.length)).put(message);
 
-    long offset = this.nextOffset.get();
+    long offset = this.nextOffset.incrementAndGet();
     try {
       int destinationConsumerId = jobInfo.getConsumerFor(partition);
-      LOGGER.info("Writing message for Consumer: {} with offset: {}", destinationConsumerId, offset);
-      persistentQueues.get(String.valueOf(destinationConsumerId))
-          .append(Longs.toByteArray(offset), buffer.array());
+      LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
+      persistentQueues.get(String.valueOf(destinationConsumerId)).append(Longs.toByteArray(offset), buffer.array());
     } catch (Exception e) {
       throw new SamzaException(String.format("Error putting data for offset: %d in the DB", offset));
     }
-
-    nextOffset.incrementAndGet();
   }
 
   @Override
   public void flush(String source) {
-    LOGGER.info("Flush requested");
+    LOGGER.trace("Flush requested from task: {}", source);
     try {
       for (Map.Entry<String, PersistentQueue> mapEntry : persistentQueues.entrySet()) {
         mapEntry.getValue().flush();
@@ -148,34 +149,32 @@ public class P2PSystemProducer implements SystemProducer {
       throw new SamzaException("Error flushing persistent queues.", e);
     }
 
-    long currentNextOffset = nextOffset.get();
     // TODO verify check for per task lastSentOffset?
-    long offset = minCheckpointedOffset.get();
-    while (offset < currentNextOffset) {
+    // TODO verify handle producer offset regression on start?
+    long currentNextOffset = nextOffset.get();
+    long currentMinCheckpointedOffset = minCheckpointedOffset.get();
+    while (currentMinCheckpointedOffset < currentNextOffset) {
       try {
-        Thread.sleep(1000); // TODO add upper bounds
-        offset = minCheckpointedOffset.get();
+        Thread.sleep(1000); // TODO add upper bounds, break on shutdown
+        currentMinCheckpointedOffset = minCheckpointedOffset.get();
       } catch (InterruptedException e) {
         throw new SamzaException(e);
       }
     }
 
+    LOGGER.info("Deleting data up to offset: {}", currentMinCheckpointedOffset);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
-      PersistentQueue pq = entry.getValue();
       try {
-        pq.deleteUpto(Longs.toByteArray(offset));
+        entry.getValue().deleteUpto(Longs.toByteArray(currentMinCheckpointedOffset));
       } catch (IOException e) {
         throw new SamzaException(
-            String.format("Error cleaning up persistent queue for data up to committed offset: %s.", offset), e);
+            String.format("Error cleaning up persistent queue for data up to committed offset: %s.", currentMinCheckpointedOffset), e);
       }
     }
   }
 
   private static class ProducerConnectionHandler extends Thread {
     private static final Logger LOGGER = LoggerFactory.getLogger(ProducerConnectionHandler.class);
-    private static final int CONNECTION_RETRY_INTERVAL = 1000;
-    private static final int CONNECTION_TIMEOUT = 1000;
-    private static final int SEND_WAIT_MS = 10;
 
     private final int producerId;
     private final int consumerId;
@@ -197,15 +196,15 @@ public class P2PSystemProducer implements SystemProducer {
           socket.setTcpNoDelay(true);
           try {
             // read the consumer port from file every time.
-            long consumerPort = Util.readFileLong(Constants.Common.getConsumerPortPath(consumerId));
-            socket.connect(new InetSocketAddress(Constants.Common.SERVER_HOST, (int) consumerPort), CONNECTION_TIMEOUT);
+            long consumerPort = Util.readFileLong(Constants.getConsumerPortPath(consumerId));
+            socket.connect(new InetSocketAddress(Constants.SERVER_HOST, (int) consumerPort), Constants.PRODUCER_CH_CONNECTION_TIMEOUT);
             LOGGER.info("Connected to Consumer: {} at Port: {} in Producer: {}", consumerId, consumerPort, producerId);
             send(socket); // blocks
           } catch (Exception ce) {
             LOGGER.error("Error in connection to Consumer: {} in Producer: {}", consumerId, producerId, ce);
             this.socket = new Socket();
             LOGGER.info("Retrying connection to Consumer: {} in Producer: {}", consumerId, producerId);
-            Thread.sleep(CONNECTION_RETRY_INTERVAL);
+            Thread.sleep(Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL);
           }
         }
       } catch (Exception e) {
@@ -232,12 +231,11 @@ public class P2PSystemProducer implements SystemProducer {
       byte[] startingOffset = null;
       while (!Thread.currentThread().isInterrupted()) {
         byte[] lastSentOffset = sendSince(startingOffset, outputStream);
-//        LOGGER.info("Last sent offset: {} for Producer: {}", Longs.fromByteArray(lastSentOffset), producerId);
         if (lastSentOffset != startingOffset) {
           startingOffset = Longs.toByteArray(Longs.fromByteArray(lastSentOffset) + 1);
         }
-//        LOGGER.info("Next starting offset: {} for Producer: {}", Longs.fromByteArray(startingOffset), producerId);
-        Thread.sleep(SEND_WAIT_MS);
+        LOGGER.trace("Next starting offset: {} for Producer: {}", Longs.fromByteArray(startingOffset), producerId); // TODO fix NPE
+        Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
       }
     }
 
@@ -246,7 +244,7 @@ public class P2PSystemProducer implements SystemProducer {
      *    1. Send producerId to consumer to identify self.
      */
     private void sync(OutputStream outputStream) throws IOException {
-      outputStream.write(Constants.Common.OPCODE_SYNC);
+      outputStream.write(Constants.OPCODE_SYNC);
       outputStream.write(Ints.toByteArray(producerId));
       outputStream.flush();
     }
@@ -257,7 +255,6 @@ public class P2PSystemProducer implements SystemProducer {
      * @return the last offset sent to consumer.
      */
     private byte[] sendSince(byte[] startingOffset, OutputStream outputStream) throws IOException {
-      persistentQueue.flush(); // TODO REMOVE
       byte[] lastSentOffset = startingOffset;
       PersistentQueueIterator iterator = persistentQueue.readFrom(startingOffset);
 
@@ -266,12 +263,11 @@ public class P2PSystemProducer implements SystemProducer {
         byte[] storedOffset = entry.getKey();
         byte[] payload = entry.getValue();
 
-        LOGGER.info("Sending data for offset: {} to Consumer: {} from Producer: {}",
+        LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
             Longs.fromByteArray(storedOffset), consumerId, producerId);
-        outputStream.write(Constants.Common.OPCODE_WRITE);
+        outputStream.write(Constants.OPCODE_WRITE);
         outputStream.write(storedOffset);
         outputStream.write(payload);
-        outputStream.flush(); // TODO remove
         lastSentOffset = storedOffset;
       }
 

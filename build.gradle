@@ -414,6 +414,7 @@ project(':samza-p2p') {
     compile "org.apache.commons:commons-lang3:$commonsLang3Version"
     compile "org.rocksdb:rocksdbjni:$rocksdbVersion"
     compile "org.slf4j:slf4j-api:$slf4jVersion"
+    compile 'org.zeroturnaround:zt-exec:1.10'
     testCompile "junit:junit:$junitVersion"
 
     // TODO FIX
