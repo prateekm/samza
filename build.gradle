@@ -418,7 +418,7 @@ project(':samza-p2p') {
     testCompile "junit:junit:$junitVersion"
 
     // TODO FIX
-    testRuntime "org.slf4j:slf4j-simple:$slf4jVersion"
+    testCompile "org.slf4j:slf4j-simple:$slf4jVersion"
   }
   checkstyle {
     configFile = new File(rootDir, "checkstyle/checkstyle.xml")

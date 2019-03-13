@@ -83,6 +83,6 @@ public class Orchestrator {
   }
 
   private static String getCmd(int containerId) {
-    return "java -Dfile.encoding=UTF-8 -classpath build/libs/c2c-replication-0.1.jar system.Container " + containerId
+    return "java -Dfile.encoding=UTF-8 -classpath build/libs/c2c-replication-0.1.jar system.Container " + containerId;
   }
 }
