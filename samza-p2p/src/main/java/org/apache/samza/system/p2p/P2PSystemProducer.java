@@ -59,8 +59,8 @@ public class P2PSystemProducer implements SystemProducer {
 
   private final Map<String, PersistentQueue> persistentQueues;
   private final Set<ProducerConnectionHandler> connectionHandlers;
-  private final AtomicLong nextOffset = new AtomicLong(0L);
-  private final AtomicLong minCheckpointedOffset = new AtomicLong(0L);
+  private final AtomicLong nextOffset = new AtomicLong(-1L);
+  private final AtomicLong minCheckpointedOffset = new AtomicLong(-1L); // TODO adjust
 
   P2PSystemProducer(String systemName, int producerId, PersistentQueueFactory persistentQueueFactory,
       CheckpointWatcherFactory checkpointWatcherFactory, Config config, MetricsRegistry metricsRegistry, JobInfo jobInfo) {
@@ -81,6 +81,18 @@ public class P2PSystemProducer implements SystemProducer {
 
   @Override
   public void start() {
+    checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, minCheckpointedOffset);
+    while (minCheckpointedOffset.get() == -1 && !Thread.currentThread().isInterrupted()) {
+      try {
+        // wait for min checkpointed offset to be updated
+        // fixes a deadlock when on restart task flushes before it has checkpointed anything.
+        // and currentNextOffset < minCheckpointedOffset from previous run.
+        Thread.sleep(1000);
+      } catch (InterruptedException e) { }
+    }
+
+    nextOffset.set(minCheckpointedOffset.get());
+
     try {
       for (int consumerId = 0; consumerId < Constants.NUM_CONTAINERS; consumerId++) {
         try {
@@ -93,10 +105,10 @@ public class P2PSystemProducer implements SystemProducer {
         connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue));
       }
       connectionHandlers.forEach(Thread::start);
-      checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, minCheckpointedOffset);
     } catch (Exception e) {
       throw new SamzaException("Unable to start P2PSystemProducer", e);
     }
+    // TODO block until minCheckpointedOffset is available and set as next offset?
   }
 
   @Override
@@ -132,43 +144,53 @@ public class P2PSystemProducer implements SystemProducer {
     try {
       int destinationConsumerId = jobInfo.getConsumerFor(partition);
       LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
+      // TODO can result in out of order appends (offset 2 append before offset 1).
+      // Move offset to pq? But offset is per producer, not per consumer
+      // TODO: require pq append thread safe or synchronize access?
       persistentQueues.get(String.valueOf(destinationConsumerId)).append(Longs.toByteArray(offset), buffer.array());
     } catch (Exception e) {
-      throw new SamzaException(String.format("Error putting data for offset: %d in the DB", offset));
+      throw new SamzaException(String.format("Error appending data for offset: %d to the queue.", offset));
     }
   }
 
   @Override
   public void flush(String source) {
     LOGGER.trace("Flush requested from task: {}", source);
-    try {
-      for (Map.Entry<String, PersistentQueue> mapEntry : persistentQueues.entrySet()) {
-        mapEntry.getValue().flush();
+
+    for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
+      String queueName = entry.getKey();
+      try {
+        entry.getValue().flush();
+      } catch (IOException e) {
+        throw new SamzaException(String.format("Error flushing persistent queue: %s", queueName), e);
       }
-    } catch (IOException e) {
-      throw new SamzaException("Error flushing persistent queues.", e);
     }
 
     // TODO verify check for per task lastSentOffset?
     // TODO verify handle producer offset regression on start?
+    // TODO why doesn't this get stuck on first flush when currentNextOffset = 0 and minCheckpointed is not?
+    // Is it blocking until the local producer sends increment nextOffset beyond minCheckpointed?
+    // or making progress since minCheckpointed default is also 0 and it hasn't been updated yet?
     long currentNextOffset = nextOffset.get();
     long currentMinCheckpointedOffset = minCheckpointedOffset.get();
     while (currentMinCheckpointedOffset < currentNextOffset) {
       try {
-        Thread.sleep(1000); // TODO add upper bounds, break on shutdown
+        Thread.sleep(100); // TODO add upper bounds, break on shutdown
         currentMinCheckpointedOffset = minCheckpointedOffset.get();
       } catch (InterruptedException e) {
-        throw new SamzaException(e);
+        throw new SamzaException("Interrupted while waiting for checkpoint to progress.", e);
       }
     }
 
     LOGGER.info("Deleting data up to offset: {}", currentMinCheckpointedOffset);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
+      String queueName = entry.getKey();
       try {
         entry.getValue().deleteUpto(Longs.toByteArray(currentMinCheckpointedOffset));
       } catch (IOException e) {
         throw new SamzaException(
-            String.format("Error cleaning up persistent queue for data up to committed offset: %s.", currentMinCheckpointedOffset), e);
+            String.format("Error cleaning up persistent queue: %s for data up to committed offset: %s.",
+                queueName, currentMinCheckpointedOffset), e);
       }
     }
   }
@@ -179,6 +201,7 @@ public class P2PSystemProducer implements SystemProducer {
     private final int producerId;
     private final int consumerId;
     private final PersistentQueue persistentQueue;
+
     private Socket socket = new Socket();
     private volatile boolean shutdown = false;
 
@@ -229,12 +252,12 @@ public class P2PSystemProducer implements SystemProducer {
       sync(outputStream);
 
       byte[] startingOffset = null;
-      while (!Thread.currentThread().isInterrupted()) {
+      while (!shutdown && !Thread.currentThread().isInterrupted()) {
         byte[] lastSentOffset = sendSince(startingOffset, outputStream);
         if (lastSentOffset != startingOffset) {
           startingOffset = Longs.toByteArray(Longs.fromByteArray(lastSentOffset) + 1);
+          LOGGER.trace("Next starting offset: {} for Producer: {}", Longs.fromByteArray(startingOffset), producerId);
         }
-        LOGGER.trace("Next starting offset: {} for Producer: {}", Longs.fromByteArray(startingOffset), producerId); // TODO fix NPE
         Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
       }
     }
@@ -252,7 +275,7 @@ public class P2PSystemProducer implements SystemProducer {
     /**
      * Sends all currently available data in the store since the {@code startingOffset} to the Consumer.
      * If {@code startingOffset} is null, sends from the beginning.
-     * @return the last offset sent to consumer.
+     * @return the last offset sent to consumer, which may be null.
      */
     private byte[] sendSince(byte[] startingOffset, OutputStream outputStream) throws IOException {
       byte[] lastSentOffset = startingOffset;

@@ -29,8 +29,8 @@ import org.rocksdb.Options;
 public class Constants {
   public static final int EXECUTION_ID = 0;
   public static final int TOTAL_RUNTIME_SECONDS = 300;
-  public static final int MIN_RUNTIME_SECONDS = 10;
-  public static final int MAX_RUNTIME_SECONDS = 20;
+  public static final int MIN_RUNTIME_SECONDS = 100;
+  public static final int MAX_RUNTIME_SECONDS = 200;
   public static final int INTERVAL_BETWEEN_RESTART_SECONDS = 5;
 
 
@@ -41,8 +41,8 @@ public class Constants {
   public static final SystemStream SYSTEM_STREAM = new SystemStream(SYSTEM_NAME, STREAM_NAME); // TODO make constant
 
   public static final int TASK_PRODUCE_INTERVAL = 100;
-  public static final int TASK_FLUSH_INTERVAL = 2000;
-  public static final int TASK_CHECKPOINT_INTERVAL = 1000;
+  public static final int TASK_FLUSH_INTERVAL = 1000;
+  public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 
   public static final int PRODUCER_CH_CONNECTION_RETRY_INTERVAL = 1000;
   public static final int PRODUCER_CH_CONNECTION_TIMEOUT = 1000;

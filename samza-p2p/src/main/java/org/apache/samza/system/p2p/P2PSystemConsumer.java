@@ -51,7 +51,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     this.consumerId = consumerId;
     this.connectionHandlers = new LinkedHashSet<>();
     this.messageSink = new MessageSink(this);
-    this.producerOffsets = new AtomicLongArray(new long[Constants.NUM_CONTAINERS]); // TODO set to num tasks?
+    this.producerOffsets = new AtomicLongArray(new long[Constants.NUM_CONTAINERS]);
   }
 
   @Override
@@ -87,6 +87,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     private final Socket socket;
     private final AtomicLongArray producerOffsets;
     private final MessageSink messageSink;
+
     private int producerId;
     private volatile boolean shutdown = false;
 
@@ -127,7 +128,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
         try {
           socket.close();
         } catch (Exception e) {
-          LOGGER.info("Error during ProducerConnectionHandler shutdown in Consumer: {}", consumerId, e);
+          LOGGER.info("Error during ConsumerConnectionHandler shutdown in Consumer: {}", consumerId, e);
         }
       }
     }
@@ -145,7 +146,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
     private void handleWrite(DataInputStream inputStream) throws IOException, InterruptedException {
       long producerOffset = inputStream.readLong();
-      LOGGER.trace("Received write request for producer: {} with offset: {} in Consumer: {}", producerId, producerOffset, consumerId);
+      LOGGER.trace("Received write request from producer: {} with offset: {} in Consumer: {}", producerId, producerOffset, consumerId);
 
       int systemLength = inputStream.readInt();
       byte[] systemBytes = new byte[systemLength];
@@ -174,7 +175,6 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       String sspOffset = producerOffsets.toString(); // TODO verify if approx / non atomic OK.
       IncomingMessageEnvelope ime = new IncomingMessageEnvelope(ssp, sspOffset, keyBytes, messageBytes);
 
-      // TODO verify if producerOffset should be per producer or per task?
       messageSink.put(ssp, ime);
     }
   }

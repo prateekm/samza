@@ -23,11 +23,11 @@ import com.google.common.primitives.Longs;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.FileAttribute;
 import java.util.Comparator;
 import org.apache.samza.SamzaException;
 
@@ -46,7 +46,7 @@ public class Util {
     if (Files.exists(filePath)) {
       return new String(Files.readAllBytes(filePath));
     } else {
-      throw new SamzaException("File does not exist at path: " + filePath);
+      throw new NoSuchFileException("File does not exist at path: " + filePath);
     }
   }
 
