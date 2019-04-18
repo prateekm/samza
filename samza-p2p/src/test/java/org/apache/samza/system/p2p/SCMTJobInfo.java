@@ -30,7 +30,8 @@ public class SCMTJobInfo implements JobInfo {
   public List<TaskName> getAllTasks() {
     ArrayList<TaskName> taskNames = new ArrayList<>();
     for (int i = 0; i < getNumPartitions(); i++) {
-      taskNames.add(new TaskName("Partition " + i));
+      taskNames.add(new TaskName("Source Partition " + i));
+      taskNames.add(new TaskName("Sink Partition " + i));
     }
     return taskNames;
   }

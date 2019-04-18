@@ -27,7 +27,9 @@ public class SCSTJobInfo implements JobInfo {
 
   @Override
   public List<TaskName> getAllTasks() {
-    return ImmutableList.of(new TaskName("Partition 0"));
+    return ImmutableList.of(
+        new TaskName("Source Partition 0"),
+        new TaskName("Sink Partition 0"));
   }
 
   @Override

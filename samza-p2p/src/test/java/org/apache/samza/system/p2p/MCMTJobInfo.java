@@ -29,7 +29,8 @@ public class MCMTJobInfo implements JobInfo {
   public List<TaskName> getAllTasks() {
     ArrayList<TaskName> taskNames = new ArrayList<>();
     for (int i = 0; i < getNumPartitions(); i++) {
-      taskNames.add(new TaskName("Partition " + i));
+      taskNames.add(new TaskName("Source Partition " + i));
+      taskNames.add(new TaskName("Sink Partition " + i));
     }
     return taskNames;
   }
@@ -37,7 +38,7 @@ public class MCMTJobInfo implements JobInfo {
   @Override
   public List<TaskName> getTasksFor(int containerId) {
     return getAllTasks().stream().filter(tn -> {
-      Integer partition = Integer.valueOf(tn.getTaskName().split("\\s")[1]);
+      Integer partition = Integer.valueOf(tn.getTaskName().split("\\s")[2]);
       return (partition % Constants.NUM_CONTAINERS) == containerId;
     }).collect(Collectors.toList());
   }

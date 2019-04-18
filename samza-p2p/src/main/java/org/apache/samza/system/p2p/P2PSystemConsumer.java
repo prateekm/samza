@@ -175,7 +175,12 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       String sspOffset = producerOffsets.toString(); // TODO verify if approx / non atomic OK.
       IncomingMessageEnvelope ime = new IncomingMessageEnvelope(ssp, sspOffset, keyBytes, messageBytes);
 
-      messageSink.put(ssp, ime);
+      try {
+        messageSink.put(ssp, ime);
+      } catch (Exception e) {
+        LOGGER.error("Error putting IME: {} for SSP: {} in BEM", ime, ssp);
+        throw e;
+      }
     }
   }
 

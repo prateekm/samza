@@ -28,9 +28,9 @@ import org.rocksdb.Options;
 
 public class Constants {
   public static final int EXECUTION_ID = 0;
-  public static final int TOTAL_RUNTIME_SECONDS = 300;
-  public static final int MIN_RUNTIME_SECONDS = 100;
-  public static final int MAX_RUNTIME_SECONDS = 200;
+  public static final int TOTAL_RUNTIME_SECONDS = 1800;
+  public static final int MIN_RUNTIME_SECONDS = 60;
+  public static final int MAX_RUNTIME_SECONDS = 120;
   public static final int INTERVAL_BETWEEN_RESTART_SECONDS = 5;
 
 

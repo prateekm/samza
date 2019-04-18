@@ -30,7 +30,8 @@ public class Container {
   private final P2PSystemProducer producer;
   private final P2PSystemConsumer consumer;
   private final Set<SystemStreamPartition> pollSet;
-  private final Map<Integer, Task> tasks;
+  private final Map<Integer, SourceTask> sourceTasks;
+  private final Map<Integer, SinkTask> sinkTasks;
 
   public static void main(String[] args) throws Exception {
     Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
@@ -55,25 +56,38 @@ public class Container {
     this.producer = producer;
     this.consumer = consumer;
     this.pollSet = jobInfo.getSSPsFor(containerId);
-    this.tasks = new HashMap<>();
+    this.sourceTasks = new HashMap<>();
+    this.sinkTasks = new HashMap<>();
+
     jobInfo.getTasksFor(containerId).forEach(taskName -> {
       String taskNameStr = taskName.getTaskName();
-      String partitionId = taskNameStr.split("\\s")[1];
-      tasks.put(Integer.valueOf(partitionId), new Task(taskNameStr, producer, jobInfo));
+      String[] taskNameParts = taskNameStr.split("\\s");
+      String partitionId = taskNameParts[2];
+      if (taskNameParts[0].startsWith("Source")) {
+        sourceTasks.put(Integer.valueOf(partitionId), new SourceTask(taskNameStr, producer, jobInfo));
+      } else {
+        sinkTasks.put(Integer.valueOf(partitionId), new SinkTask(taskNameStr, jobInfo));
+      }
     });
   }
 
   void start() {
     LOGGER.info("Starting Container {}.", containerId);
     producer.start();
-    tasks.forEach((partition, task) -> task.start());
+    sourceTasks.forEach((partition, task) -> task.start());
+    sinkTasks.forEach((partition, task) -> task.start());
     pollSet.forEach(ssp -> consumer.register(ssp, ""));
 
     Thread pollThread = new Thread(() -> {
       try {
         while (!Thread.currentThread().isInterrupted()) {
           Map<SystemStreamPartition, List<IncomingMessageEnvelope>> pollResults = consumer.poll(pollSet, 1000);
-          pollResults.forEach((ssp, imes) -> tasks.get(ssp.getPartition().getPartitionId()).process(imes));
+          pollResults.forEach((ssp, imes) -> {
+              int partitionId = ssp.getPartition().getPartitionId();
+              SinkTask task = sinkTasks.get(partitionId);
+              LOGGER.trace("Found SinkTask: {} for partitionId: {}", task, partitionId);
+              task.process(imes);
+            });
         }
       } catch (InterruptedException e) { }
     }, "ContainerPollThread");
@@ -85,6 +99,7 @@ public class Container {
   void stop() {
     consumer.stop();
     producer.stop();
-    tasks.forEach((partition, task) -> task.stop());
+    sourceTasks.forEach((partition, task) -> task.stop());
+    sinkTasks.forEach((partition, task) -> task.start());
   }
 }

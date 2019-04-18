@@ -24,6 +24,8 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
           long minOffset = Long.MAX_VALUE;
           List<TaskName> tasks = jobInfo.getTasksFor(producerId);
           for (TaskName taskName : tasks) {
+            if (taskName.getTaskName().startsWith("Source")) continue; // only check checkpoints for sinks
+
             long[] offsets =
                 Util.parseOffsets(Util.readFileString(Constants.getTaskCheckpointPath(taskName.getTaskName())));
             long producerOffset = offsets[producerId];
