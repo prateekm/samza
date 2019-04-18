@@ -34,8 +34,8 @@ public class Constants {
   public static final int INTERVAL_BETWEEN_RESTART_SECONDS = 5;
 
 
-  public static final int NUM_CONTAINERS = 2;
-  public static final int NUM_PARTITIONS = 4;
+  public static final int NUM_CONTAINERS = 1;
+  public static final int NUM_PARTITIONS = 2;
   public static final String SYSTEM_NAME = "p2pSystem";
   public static final String STREAM_NAME = "p2pStream";
   public static final SystemStream SYSTEM_STREAM = new SystemStream(SYSTEM_NAME, STREAM_NAME); // TODO make constant
