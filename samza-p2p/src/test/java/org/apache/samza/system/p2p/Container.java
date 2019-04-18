@@ -11,6 +11,8 @@ import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.checkpoint.FileCheckpointWatcherFactory;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.apache.samza.system.p2p.jobinfo.MCMTJobInfo;
+import org.apache.samza.system.p2p.jobinfo.SCMTJobInfo;
+import org.apache.samza.system.p2p.jobinfo.SCSTJobInfo;
 import org.apache.samza.system.p2p.pq.RocksDBPersistentQueueFactory;
 import org.apache.samza.util.NoOpMetricsRegistry;
 import org.slf4j.Logger;
@@ -44,7 +46,16 @@ public class Container {
     Map<String, String> configMap = new HashMap<>();
     MapConfig config = new MapConfig(configMap);
     MetricsRegistry metricsRegistry = new NoOpMetricsRegistry();
-    JobInfo jobInfo = new MCMTJobInfo();
+    JobInfo jobInfo;
+    if (Constants.NUM_CONTAINERS == 1) {
+      if (Constants.NUM_PARTITIONS == 1) {
+        jobInfo = new SCSTJobInfo();
+      } else {
+        jobInfo = new SCMTJobInfo();
+      }
+    } else {
+      jobInfo = new MCMTJobInfo();
+    }
 
     P2PSystemProducer producer = new P2PSystemProducer(Constants.SYSTEM_NAME, containerId, new RocksDBPersistentQueueFactory(),
         new FileCheckpointWatcherFactory(), config, metricsRegistry, jobInfo);
