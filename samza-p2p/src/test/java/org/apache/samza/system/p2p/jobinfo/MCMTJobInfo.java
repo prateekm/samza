@@ -1,16 +1,18 @@
-package org.apache.samza.system.p2p;
-
-import com.google.common.collect.ImmutableList;
+package org.apache.samza.system.p2p.jobinfo;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.samza.Partition;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.SystemStreamPartition;
+import org.apache.samza.system.p2p.Constants;
+import org.apache.samza.system.p2p.Util;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
-public class SCMTJobInfo implements JobInfo {
+public class MCMTJobInfo implements JobInfo {
   @Override
   public int getNumPartitions() {
     return Constants.NUM_PARTITIONS;
@@ -23,7 +25,7 @@ public class SCMTJobInfo implements JobInfo {
 
   @Override
   public int getConsumerFor(int partition) {
-    return 0;
+    return partition % Constants.NUM_CONTAINERS;
   }
 
   @Override
@@ -38,14 +40,19 @@ public class SCMTJobInfo implements JobInfo {
 
   @Override
   public List<TaskName> getTasksFor(int containerId) {
-    return getAllTasks();
+    return getAllTasks().stream().filter(tn -> {
+      Integer partition = Integer.valueOf(tn.getTaskName().split("\\s")[2]);
+      return (partition % Constants.NUM_CONTAINERS) == containerId;
+    }).collect(Collectors.toList());
   }
 
   @Override
   public Set<SystemStreamPartition> getSSPsFor(int containerId) {
     Set<SystemStreamPartition> ssps = new HashSet<>();
     for (int i = 0; i < Constants.NUM_PARTITIONS; i++) {
-      ssps.add(new SystemStreamPartition(Constants.SYSTEM_NAME, Constants.STREAM_NAME, new Partition(i)));
+      if ((i % Constants.NUM_CONTAINERS) == containerId) {
+        ssps.add(new SystemStreamPartition(Constants.SYSTEM_NAME, Constants.STREAM_NAME, new Partition(i)));
+      }
     }
     return ssps;
   }

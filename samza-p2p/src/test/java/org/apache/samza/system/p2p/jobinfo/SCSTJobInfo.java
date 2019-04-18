@@ -1,4 +1,4 @@
-package org.apache.samza.system.p2p;
+package org.apache.samza.system.p2p.jobinfo;
 
 import com.google.common.collect.ImmutableList;
 
@@ -8,6 +8,8 @@ import java.util.Set;
 import org.apache.samza.Partition;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.SystemStreamPartition;
+import org.apache.samza.system.p2p.Constants;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public class SCSTJobInfo implements JobInfo {
   @Override

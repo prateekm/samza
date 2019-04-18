@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.samza.SamzaException;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.p2p.Constants;
-import org.apache.samza.system.p2p.JobInfo;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.apache.samza.system.p2p.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

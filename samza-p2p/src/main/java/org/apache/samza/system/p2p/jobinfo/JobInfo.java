@@ -1,4 +1,4 @@
-package org.apache.samza.system.p2p;
+package org.apache.samza.system.p2p.jobinfo;
 
 import java.util.List;
 import java.util.Set;

@@ -9,6 +9,8 @@ import org.apache.samza.metrics.MetricsRegistry;
 import org.apache.samza.system.IncomingMessageEnvelope;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.checkpoint.FileCheckpointWatcherFactory;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
+import org.apache.samza.system.p2p.jobinfo.MCMTJobInfo;
 import org.apache.samza.system.p2p.pq.RocksDBPersistentQueueFactory;
 import org.apache.samza.util.NoOpMetricsRegistry;
 import org.slf4j.Logger;

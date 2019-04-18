@@ -41,6 +41,7 @@ import org.apache.samza.system.OutgoingMessageEnvelope;
 import org.apache.samza.system.SystemProducer;
 import org.apache.samza.system.p2p.checkpoint.CheckpointWatcher;
 import org.apache.samza.system.p2p.checkpoint.CheckpointWatcherFactory;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.apache.samza.system.p2p.pq.PersistentQueue;
 import org.apache.samza.system.p2p.pq.PersistentQueueFactory;
 import org.apache.samza.system.p2p.pq.PersistentQueueIterator;

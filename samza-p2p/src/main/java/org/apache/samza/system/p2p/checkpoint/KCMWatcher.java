@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.samza.checkpoint.CheckpointManager;
 import org.apache.samza.container.TaskName;
-import org.apache.samza.system.p2p.JobInfo;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.apache.samza.system.p2p.Util;
 
 public class KCMWatcher implements CheckpointWatcher {

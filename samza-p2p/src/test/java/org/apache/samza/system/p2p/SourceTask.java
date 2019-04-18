@@ -3,6 +3,7 @@ package org.apache.samza.system.p2p;
 import java.util.Random;
 import org.apache.samza.system.OutgoingMessageEnvelope;
 import org.apache.samza.system.SystemStream;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

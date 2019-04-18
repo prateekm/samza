@@ -5,6 +5,7 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 import org.apache.samza.SamzaException;
 import org.apache.samza.system.IncomingMessageEnvelope;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
