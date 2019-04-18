@@ -5,8 +5,6 @@ import com.google.common.primitives.Longs;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.NoSuchElementException;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.config.Config;
 import org.apache.samza.metrics.MetricsRegistry;
 import org.apache.samza.system.p2p.Constants;
@@ -83,39 +81,5 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   @Override
   public void close() {
     db.close();
-  }
-
-  private class RocksDBPersistentQueueIterator implements PersistentQueueIterator {
-    private final RocksIterator iterator;
-
-    RocksDBPersistentQueueIterator(RocksIterator iterator) {
-      this.iterator = iterator;
-    }
-
-    @Override
-    public boolean hasNext() {
-      return iterator.isValid();
-    }
-
-    // By virtue of how RocksdbIterator is implemented, the implementation of
-    // our iterator is slightly different from standard java iterator next will
-    // always point to the current element, when next is called, we return the
-    // current element we are pointing to and advance the iterator to the next
-    // location (The new location may or may not be valid - this will surface
-    // when the next next() call is made, the isValid will fail)
-    @Override
-    public Pair<byte[], byte[]> next() {
-      if (!hasNext()) {
-        throw new NoSuchElementException();
-      }
-
-      Pair<byte[], byte[]> entry = Pair.of(iterator.key(), iterator.value());
-      iterator.next();
-      return entry;
-    }
-
-    public void close() {
-      iterator.close();
-    }
   }
 }
