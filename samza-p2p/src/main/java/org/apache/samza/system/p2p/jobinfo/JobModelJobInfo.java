@@ -2,10 +2,12 @@ package org.apache.samza.system.p2p.jobinfo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import org.apache.samza.config.ShellCommandConfig;
 import org.apache.samza.container.SamzaContainer;
 import org.apache.samza.container.TaskName;
+import org.apache.samza.job.model.ContainerModel;
 import org.apache.samza.job.model.JobModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,8 +27,13 @@ public class JobModelJobInfo implements JobInfo {
   }
 
   @Override
-  public int getNumPartitions() {
+  public int getNumContainers() {
     return jobModel.getContainers().size();
+  }
+
+  @Override
+  public int getNumPartitions() {
+    return getAllTasks().size();
   }
 
   @Override

@@ -148,9 +148,10 @@ public class P2PSystemProducer implements SystemProducer {
       // TODO can result in out of order appends (offset 2 append before offset 1).
       // Move offset to pq? But offset is per producer, not per consumer
       // TODO: require pq append thread safe or synchronize access?
-      persistentQueues.get(String.valueOf(destinationConsumerId)).append(Longs.toByteArray(offset), buffer.array());
+      persistentQueues.get(String.valueOf(destinationConsumerId))
+          .append(Longs.toByteArray(offset), buffer.array());
     } catch (Exception e) {
-      throw new SamzaException(String.format("Error appending data for offset: %d to the queue.", offset));
+      throw new SamzaException(String.format("Error appending data for offset: %d to the queue.", offset), e);
     }
   }
 

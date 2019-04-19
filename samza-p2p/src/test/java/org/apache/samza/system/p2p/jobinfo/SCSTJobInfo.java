@@ -14,8 +14,13 @@ import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public class SCSTJobInfo implements JobInfo {
   @Override
+  public int getNumContainers() {
+    return Constants.NUM_CONTAINERS;
+  }
+
+  @Override
   public int getNumPartitions() {
-    return 1;
+    return Constants.NUM_PARTITIONS;
   }
 
   @Override

@@ -17,7 +17,6 @@ public class SourceTask {
   private final Thread produceThread;
   private final Thread commitThread;
 
-  private volatile String lastReceivedOffset = null;
   private volatile boolean shutdown = false;
 
   SourceTask(String taskName, P2PSystemProducer producer, JobInfo jobInfo) {

@@ -8,6 +8,7 @@ import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.Util;
 
 public interface JobInfo {
+  int getNumContainers();
   int getNumPartitions();
   List<TaskName> getAllTasks();
 
@@ -24,7 +25,7 @@ public interface JobInfo {
   }
 
   default int getConsumerFor(int partition) {
-    return partition % getNumPartitions();
+    return partition % getNumContainers(); // todo should be % num containers, not num tasks
   }
 }
 

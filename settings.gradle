@@ -19,7 +19,6 @@
 
 include \
   'samza-api',
-  'samza-p2p',
   'samza-sql',
   'samza-shell'
 
@@ -37,6 +36,7 @@ def scalaModules = [
         'samza-kv-couchbase',
         'samza-log4j',
         'samza-log4j2',
+        'samza-p2p',
         'samza-rest',
         'samza-sql',
         'samza-sql-shell',
