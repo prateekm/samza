@@ -503,7 +503,8 @@ class OffsetManager(
         taskName -> {
           sspToOffsets.asScala.groupBy(_._1.getSystem).flatMap {
             case (systemName, systemStreamPartitionOffsets) =>
-              systemAdmins.getSystemAdmin(systemName).getOffsetsAfter(systemStreamPartitionOffsets.asJava).asScala
+              systemAdmins.getSystemAdmin(systemName).
+                getOffsetsAfter(systemStreamPartitionOffsets.asJava).asScala
           }
         }
       }

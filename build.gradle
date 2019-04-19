@@ -403,12 +403,13 @@ project(":samza-tools_$scalaSuffix") {
   }
 }
 
-project(':samza-p2p') {
+project(":samza-p2p") {
   apply plugin: 'checkstyle'
   apply plugin: 'java'
 
   dependencies {
     compile project(':samza-api')
+    compile project(":samza-core_$scalaSuffix") // TODO remove
     compile "com.google.guava:guava:$guavaVersion"
     compile "io.netty:netty-all:$nettyVersion"
     compile "org.apache.commons:commons-lang3:$commonsLang3Version"
@@ -420,6 +421,7 @@ project(':samza-p2p') {
     // TODO FIX
     testCompile "org.slf4j:slf4j-simple:$slf4jVersion"
   }
+  
   checkstyle {
     configFile = new File(rootDir, "checkstyle/checkstyle.xml")
     toolVersion = "$checkstyleVersion"

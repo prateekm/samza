@@ -22,7 +22,7 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
       while (!shutdown && !Thread.currentThread().isInterrupted()) {
         try {
           long minOffset = Long.MAX_VALUE;
-          List<TaskName> tasks = jobInfo.getTasksFor(producerId);
+          List<TaskName> tasks = jobInfo.getAllTasks(); // TODO why only for own tasks? shouldn't this be all tasks
           for (TaskName taskName : tasks) {
             if (taskName.getTaskName().startsWith("Source")) continue; // only check checkpoints for sinks
 

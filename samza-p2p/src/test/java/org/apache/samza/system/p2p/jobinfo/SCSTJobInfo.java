@@ -9,22 +9,13 @@ import org.apache.samza.Partition;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.Constants;
+import org.apache.samza.system.p2p.Util;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public class SCSTJobInfo implements JobInfo {
   @Override
   public int getNumPartitions() {
     return 1;
-  }
-
-  @Override
-  public int getPartitionFor(byte[] key) {
-    return 0;
-  }
-
-  @Override
-  public int getConsumerFor(int partition) {
-    return 0;
   }
 
   @Override

@@ -19,16 +19,6 @@ public class MCMTJobInfo implements JobInfo {
   }
 
   @Override
-  public int getPartitionFor(byte[] key) {
-    return Util.toPositive(Util.murmur2(key)) % getNumPartitions();
-  }
-
-  @Override
-  public int getConsumerFor(int partition) {
-    return partition % Constants.NUM_CONTAINERS;
-  }
-
-  @Override
   public List<TaskName> getAllTasks() {
     ArrayList<TaskName> taskNames = new ArrayList<>();
     for (int i = 0; i < getNumPartitions(); i++) {
