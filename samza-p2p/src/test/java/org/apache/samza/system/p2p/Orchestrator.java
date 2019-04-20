@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.apache.samza.system.p2p;
 
 import com.google.common.util.concurrent.Uninterruptibles;
@@ -28,9 +46,9 @@ public class Orchestrator {
 
   public static void main(String[] args) {
     Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-      LOGGER.error("Uncaught error in thread: " + t, e);
-      System.exit(1);
-    });
+        LOGGER.error("Uncaught error in thread: " + t, e);
+        System.exit(1);
+      });
 
     simulateFailures();
 
@@ -45,35 +63,35 @@ public class Orchestrator {
     for (int i = 0; i < Constants.NUM_CONTAINERS; i++) {
       final int id = i;
       executorService.submit(() -> {
-        try {
-          while (!Thread.currentThread().isInterrupted()) {
-            try {
-              int remainingTimeInSeconds =  Math.max((int) (finishTimeMs - System.currentTimeMillis()) / 1000, 0);
-              int runtimeInSeconds = Math.min((Constants.MIN_RUNTIME_SECONDS +
-                  RANDOM.nextInt(Constants.MAX_RUNTIME_SECONDS -
-                      Constants.MIN_RUNTIME_SECONDS)), remainingTimeInSeconds) + 1;
-              if (runtimeInSeconds <= 0) throw new RuntimeException();
-              LOGGER.info("Starting container " + id + " with runtime " + runtimeInSeconds);
-              new ProcessExecutor().command((getCmd(id)).split("\\s+")) // args must be provided separately from cmd
-                  .redirectOutput(Slf4jStream.of("Container " + id).asInfo())
-                  .timeout(runtimeInSeconds, TimeUnit.SECONDS) // random timeout for force kill, must be > 0
-                  .destroyOnExit()
-                  .execute();
-            } catch (TimeoutException te) {
-              LOGGER.info("Timeout for container " + id);
-            } catch (InterruptedException ie) {
-              LOGGER.info("Interrupted for container " + id);
-              break;
-            } catch (Exception e) {
-              LOGGER.error("Unexpected error for container " + id, e);
+          try {
+            while (!Thread.currentThread().isInterrupted()) {
+              try {
+                int remainingTimeInSeconds =  Math.max((int) (finishTimeMs - System.currentTimeMillis()) / 1000, 0);
+                int runtimeInSeconds = Math.min(Constants.MIN_RUNTIME_SECONDS +
+                    RANDOM.nextInt(Constants.MAX_RUNTIME_SECONDS -
+                        Constants.MIN_RUNTIME_SECONDS), remainingTimeInSeconds) + 1;
+                if (runtimeInSeconds <= 0) throw new RuntimeException();
+                LOGGER.info("Starting container " + id + " with runtime " + runtimeInSeconds);
+                new ProcessExecutor().command((getCmd(id)).split("\\s+")) // args must be provided separately from cmd
+                    .redirectOutput(Slf4jStream.of("Container " + id).asInfo())
+                    .timeout(runtimeInSeconds, TimeUnit.SECONDS) // random timeout for force kill, must be > 0
+                    .destroyOnExit()
+                    .execute();
+              } catch (TimeoutException te) {
+                LOGGER.info("Timeout for container " + id);
+              } catch (InterruptedException ie) {
+                LOGGER.info("Interrupted for container " + id);
+                break;
+              } catch (Exception e) {
+                LOGGER.error("Unexpected error for container " + id, e);
+              }
+              Uninterruptibles.sleepUninterruptibly(Constants.INTERVAL_BETWEEN_RESTART_SECONDS, TimeUnit.SECONDS);
             }
-            Uninterruptibles.sleepUninterruptibly(Constants.INTERVAL_BETWEEN_RESTART_SECONDS, TimeUnit.SECONDS);
+            LOGGER.info("Shutting down launcher thread for container " + id);
+          } catch (Exception e) {
+            LOGGER.error("Error in launcher thread for container " + id);
           }
-          LOGGER.info("Shutting down launcher thread for container " + id);
-        } catch (Exception e) {
-          LOGGER.error("Error in launcher thread for container " + id);
-        }
-      });
+        });
     }
     Uninterruptibles.sleepUninterruptibly(Constants.TOTAL_RUNTIME_SECONDS / 2, TimeUnit.SECONDS);
     LOGGER.info("Shutting down executor service.");

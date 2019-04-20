@@ -98,7 +98,9 @@ public class P2PSystemProducer implements SystemProducer {
       for (int consumerId = 0; consumerId < Constants.NUM_CONTAINERS; consumerId++) {
         try {
           Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
-        } catch (NoSuchFileException e) {}
+        } catch (NoSuchFileException e) {
+
+        }
 
         PersistentQueue persistentQueue =
             persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);

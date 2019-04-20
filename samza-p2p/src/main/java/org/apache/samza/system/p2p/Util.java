@@ -29,7 +29,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
-import org.apache.samza.SamzaException;
 
 public class Util {
   public static long readFileLong(Path filePath) {
@@ -135,20 +134,6 @@ public class Util {
     return h;
   }
 
-//  public static int getConsumerFor(byte[] key, JobModel jobModel) {
-//    int partition = getPartitionFor(key, getNumPartitions(jobModel));
-//    // TODO implement; look up task for partition then container for task.
-//    return partition;
-//  }
-//
-//  public static int getPartitionFor(byte[] key, int numPartitions) {
-//    return toPositive(murmur2(key)) % numPartitions;
-//  }
-//
-//  public static int getNumPartitions(JobModel jobModel) {
-//    return getTaskNames(jobModel).size();
-//  }
-//
   public static long[] parseOffsets(String s) {
     if (s == null || s.length() < 2) {
       throw new IllegalArgumentException(String.format("Invalid offset vector: %s", s));
@@ -160,9 +145,4 @@ public class Util {
     }
     return offsets;
   }
-//
-//  public static List<TaskName> getTaskNames(JobModel jobModel) {
-//    return jobModel.getContainers().values().stream()
-//        .flatMap(cm -> cm.getAllTasks().keySet().stream()).collect(Collectors.toList());
-//  }
 }
