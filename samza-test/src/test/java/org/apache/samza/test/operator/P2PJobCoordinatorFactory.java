@@ -16,26 +16,16 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.samza.system.p2p.checkpoint;
+package org.apache.samza.test.operator;
 
-import java.util.List;
-import org.apache.samza.SamzaException;
-import org.apache.samza.checkpoint.CheckpointManager;
-import org.apache.samza.checkpoint.CheckpointManagerFactory;
 import org.apache.samza.config.Config;
-import org.apache.samza.container.TaskName;
+import org.apache.samza.coordinator.JobCoordinator;
+import org.apache.samza.coordinator.JobCoordinatorFactory;
 import org.apache.samza.metrics.MetricsRegistry;
 
-public class KCMWatcherFactory implements CheckpointWatcherFactory {
-  public CheckpointWatcher getCheckpointWatcher(Config config, List<TaskName> tasks, MetricsRegistry metricsRegistry) {
-    try {
-      CheckpointManager checkpointManager =
-          ((CheckpointManagerFactory) Class.forName(config.get("task.checkpoint.factory")).newInstance())
-              .getCheckpointManager(config, metricsRegistry);
-
-      return new KCMWatcher(checkpointManager, tasks);
-    } catch (Exception e) {
-      throw new SamzaException("Could not create a KCMWatcher", e);
-    }
+public class P2PJobCoordinatorFactory implements JobCoordinatorFactory {
+  @Override
+  public JobCoordinator getJobCoordinator(String processorId, Config config, MetricsRegistry metricsRegistry) {
+    return new P2PJobCoordinator(processorId, config, metricsRegistry);
   }
 }

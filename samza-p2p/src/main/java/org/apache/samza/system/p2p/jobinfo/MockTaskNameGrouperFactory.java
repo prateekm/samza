@@ -20,46 +20,29 @@ package org.apache.samza.system.p2p.jobinfo;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import org.apache.samza.Partition;
 import org.apache.samza.config.Config;
 import org.apache.samza.container.TaskName;
+import org.apache.samza.container.grouper.task.TaskNameGrouper;
+import org.apache.samza.container.grouper.task.TaskNameGrouperFactory;
 import org.apache.samza.job.model.ContainerModel;
-import org.apache.samza.job.model.JobModel;
 import org.apache.samza.job.model.TaskModel;
 import org.apache.samza.system.SystemStreamPartition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public class JobModelJobInfo implements JobInfo {
-  private final JobModel jobModel;
-
-  public JobModelJobInfo(Config config) {
-    this.jobModel = getJobModel(config);
-  }
-
+public class MockTaskNameGrouperFactory implements TaskNameGrouperFactory {
   @Override
-  public int getNumContainers() {
-    return jobModel.getContainers().size();
+  public TaskNameGrouper build(Config config) {
+    return new MockTaskNameGrouper();
   }
+}
 
+class MockTaskNameGrouper implements TaskNameGrouper {
   @Override
-  public int getNumPartitions() {
-    return getAllTasks().size() / 2; // TODO divide by 2 to exclude "Source" tasks
-  }
-
-  @Override
-  public List<TaskName> getAllTasks() {
-    List<TaskName> tasks = new ArrayList<>();
-    jobModel.getContainers().forEach((cid, cm) -> tasks.addAll(cm.getTasks().keySet()));
-    return tasks;
-  }
-
-  // TODO remove hardcoding
-  public JobModel getJobModel(Config config) {
+  public Set<ContainerModel> group(Set<TaskModel> taskModels) {
     Map<TaskName, TaskModel> c0TaskModels = new HashMap<>();
     c0TaskModels.put(new TaskName("Source 0"), new TaskModel(new TaskName("Source 0"), ImmutableSet.of(new SystemStreamPartition("kafka", "pageview-filter-input", new Partition(0))), new Partition(0)));
     c0TaskModels.put(new TaskName("Sink 0"), new TaskModel(new TaskName("Sink 0"), ImmutableSet.of(new SystemStreamPartition("p2p", "pageview-filter-1-partition_by-p2p", new Partition(0))), new Partition(0)));
@@ -68,9 +51,9 @@ public class JobModelJobInfo implements JobInfo {
     c1TaskModels.put(new TaskName("Source 1"), new TaskModel(new TaskName("Source 1"), ImmutableSet.of(new SystemStreamPartition("kafka", "pageview-filter-input", new Partition(1))), new Partition(1)));
     c1TaskModels.put(new TaskName("Sink 1"), new TaskModel(new TaskName("Sink 1"), ImmutableSet.of(new SystemStreamPartition("p2p", "pageview-filter-1-partition_by-p2p", new Partition(1))), new Partition(1)));
 
-    Map<String, ContainerModel> containerModels = new HashMap<>();
-    containerModels.put("0", new ContainerModel("0", c0TaskModels));
-    containerModels.put("1", new ContainerModel("1", c1TaskModels));
-    return new JobModel(config, containerModels);
+    Set<ContainerModel> containerModels = new HashSet<>();
+    containerModels.add(new ContainerModel("0", c0TaskModels));
+    containerModels.add(new ContainerModel("1", c1TaskModels));
+    return containerModels;
   }
 }

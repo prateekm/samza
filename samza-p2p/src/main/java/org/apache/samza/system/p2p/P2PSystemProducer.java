@@ -28,10 +28,12 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.file.NoSuchFileException;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.SamzaException;
@@ -61,7 +63,8 @@ public class P2PSystemProducer implements SystemProducer {
   private final Map<String, PersistentQueue> persistentQueues;
   private final Set<ProducerConnectionHandler> connectionHandlers;
   private final AtomicLong nextOffset = new AtomicLong(-1L);
-  private final AtomicLong minCheckpointedOffset = new AtomicLong(-1L); // TODO adjust
+  private final ConcurrentHashMap<Integer, Long> lastTaskSentOffset = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Integer, Long> lastTaskCheckpointedOffset = new ConcurrentHashMap<>();
 
   P2PSystemProducer(String systemName, int producerId, PersistentQueueFactory persistentQueueFactory,
       CheckpointWatcherFactory checkpointWatcherFactory, Config config, MetricsRegistry metricsRegistry, JobInfo jobInfo) {
@@ -82,20 +85,21 @@ public class P2PSystemProducer implements SystemProducer {
 
   @Override
   public void start() {
-    checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, minCheckpointedOffset);
-    while (minCheckpointedOffset.get() == -1 && !Thread.currentThread().isInterrupted()) {
+    checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, lastTaskCheckpointedOffset);
+    while (lastTaskCheckpointedOffset.get(-1) == null) { // TODO FIX using dummy value for 'hasBeenUpdated'
       try {
-        // wait for min checkpointed offset to be updated
+        // wait for last task checkpointed offset to be updated
         // fixes a deadlock when on restart task flushes before it has checkpointed anything.
         // and currentNextOffset < minCheckpointedOffset from previous run.
+        LOGGER.trace("Waiting for last task checkpoint offset to be updated.");
         Thread.sleep(1000);
       } catch (InterruptedException e) { }
     }
 
-    nextOffset.set(minCheckpointedOffset.get());
+    nextOffset.set(getMaxCheckpointedOffset() + 1);
 
     try {
-      for (int consumerId = 0; consumerId < Constants.NUM_CONTAINERS; consumerId++) {
+      for (int consumerId = 0; consumerId < 2 /** TODO change to container count **/; consumerId++) {
         try {
           Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
         } catch (NoSuchFileException e) {
@@ -146,6 +150,8 @@ public class P2PSystemProducer implements SystemProducer {
     long offset = this.nextOffset.incrementAndGet();
     try {
       int destinationConsumerId = jobInfo.getConsumerFor(partition);
+      int destinationTaskId = destinationConsumerId; // TODO FIX this assumes num partition = num task = num containers
+      lastTaskSentOffset.put(destinationTaskId, offset);
       LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
       // TODO can result in out of order appends (offset 2 append before offset 1).
       // Move offset to pq? But offset is per producer, not per consumer
@@ -159,8 +165,11 @@ public class P2PSystemProducer implements SystemProducer {
 
   @Override
   public void flush(String source) {
-    LOGGER.trace("Flush requested from task: {}", source);
+    if (source.contains("Sink")) { // TODO fix detection of "sink" tasks not producing to p2p
+      return;
+    }
 
+    LOGGER.trace("Flush requested from task: {}", source);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
       try {
@@ -170,33 +179,48 @@ public class P2PSystemProducer implements SystemProducer {
       }
     }
 
-    // TODO verify check for per task lastSentOffset?
     // TODO verify handle producer offset regression on start?
-    // TODO why doesn't this get stuck on first flush when currentNextOffset = 0 and minCheckpointed is not?
-    // Is it blocking until the local producer sends increment nextOffset beyond minCheckpointed?
-    // or making progress since minCheckpointed default is also 0 and it hasn't been updated yet?
-    long currentNextOffset = nextOffset.get();
-    long currentMinCheckpointedOffset = minCheckpointedOffset.get();
-    while (currentMinCheckpointedOffset < currentNextOffset) {
+    Map<Integer, Long> currentLastTaskSentOffsets = new HashMap<>(lastTaskSentOffset);
+    boolean isUpToDate = false;
+    while (!isUpToDate) {
+      isUpToDate = true;
+      for (Map.Entry<Integer, Long> e: lastTaskCheckpointedOffset.entrySet()) {
+        Integer taskId = e.getKey();
+        Long lastTaskCheckpointedOffset = e.getValue();
+        Long lastTaskSentOffset = currentLastTaskSentOffsets.get(taskId);
+        if (lastTaskSentOffset != null && lastTaskSentOffset > lastTaskCheckpointedOffset + 1) {
+          LOGGER.trace("Waiting since Task: Sink {} lastCheckpointedOffset + 1: {} is less than lastSentOffset: {}",
+              taskId, lastTaskCheckpointedOffset + 1, lastTaskSentOffset);
+          isUpToDate = false;
+          break;
+        }
+      }
+
       try {
-        Thread.sleep(100); // TODO add upper bounds, break on shutdown
-        currentMinCheckpointedOffset = minCheckpointedOffset.get();
+        Thread.sleep(1000); // TODO add upper bounds, break on shutdown
       } catch (InterruptedException e) {
         throw new SamzaException("Interrupted while waiting for checkpoint to progress.", e);
       }
     }
 
-    LOGGER.info("Deleting data up to offset: {}", currentMinCheckpointedOffset);
+    long currentMaxCheckpointedOffset = getMaxCheckpointedOffset(); // TODO max sent offset?
+    LOGGER.info("Deleting data up to offset: {}", currentMaxCheckpointedOffset);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
       try {
-        entry.getValue().deleteUpto(Longs.toByteArray(currentMinCheckpointedOffset));
+        entry.getValue().deleteUpto(Longs.toByteArray(currentMaxCheckpointedOffset));
       } catch (IOException e) {
         throw new SamzaException(
             String.format("Error cleaning up persistent queue: %s for data up to committed offset: %s.",
-                queueName, currentMinCheckpointedOffset), e);
+                queueName, currentMaxCheckpointedOffset), e);
       }
     }
+
+    LOGGER.trace("Flush completed for task: {}", source);
+  }
+
+  private Long getMaxCheckpointedOffset() {
+    return lastTaskCheckpointedOffset.values().stream().max(Comparator.comparingLong(l -> (Long) l)).get();
   }
 
   private static class ProducerConnectionHandler extends Thread {

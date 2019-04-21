@@ -45,6 +45,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
   private final Set<ConsumerConnectionHandler> connectionHandlers;
   private final MessageSink messageSink;
   private final AtomicLongArray producerOffsets;
+  private final Thread acceptorThread;
 
   public P2PSystemConsumer(int consumerId, MetricsRegistry metricsRegistry, Clock clock) {
     super(metricsRegistry, clock);
@@ -52,33 +53,37 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     this.connectionHandlers = new LinkedHashSet<>();
     this.messageSink = new MessageSink(this);
     this.producerOffsets = new AtomicLongArray(new long[Constants.NUM_CONTAINERS]);
+    this.acceptorThread = new Thread(() -> {
+        ConsumerConnectionHandler connectionHandler = null;
+        try (ServerSocket serverSocket = new ServerSocket()) {
+          serverSocket.bind(null);
+          int consumerPort = serverSocket.getLocalPort();
+          Util.writeFile(Constants.getConsumerPortPath(consumerId), consumerPort);
+
+          while (!Thread.currentThread().isInterrupted()) {
+            Socket socket = serverSocket.accept();
+            connectionHandler = new ConsumerConnectionHandler(consumerId, socket, producerOffsets, messageSink);
+            connectionHandlers.add(connectionHandler);
+            connectionHandler.start();
+          }
+          LOGGER.info("Exiting connection accept loop in Consumer: {}", consumerId);
+        } catch (Exception e) {
+          throw new RuntimeException("Error handling connection in Consumer." + consumerId, e);
+        }
+      }, "ConsumerConnectionAcceptor " + consumerId);
   }
 
   @Override
   public void start() {
     LOGGER.info("Consumer: {} is starting.", consumerId);
-    ConsumerConnectionHandler connectionHandler = null;
-    try (ServerSocket serverSocket = new ServerSocket()) {
-      serverSocket.bind(null);
-      int consumerPort = serverSocket.getLocalPort();
-      Util.writeFile(Constants.getConsumerPortPath(consumerId), consumerPort);
-
-      while (!Thread.currentThread().isInterrupted()) {
-        Socket socket = serverSocket.accept();
-        connectionHandler = new ConsumerConnectionHandler(consumerId, socket, producerOffsets, messageSink);
-        connectionHandlers.add(connectionHandler);
-        connectionHandler.start();
-      }
-      LOGGER.info("Exiting connection accept loop in Consumer: {}", consumerId);
-    } catch (Exception e) {
-      throw new RuntimeException("Error handling connection in Consumer." + consumerId, e);
-    }
+    acceptorThread.start();
   }
 
   @Override
   public void stop() {
+    acceptorThread.interrupt();
     connectionHandlers.forEach(ConsumerConnectionHandler::close);
-    // TODO close socket?
+    // TODO close socket? isShuttingDown boolean?
   }
 
   private static class ConsumerConnectionHandler extends Thread {

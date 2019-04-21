@@ -18,10 +18,11 @@
  */
 package org.apache.samza.system.p2p.checkpoint;
 
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentMap;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public interface CheckpointWatcher {
-  void updatePeriodically(String systemName, int producerId, JobInfo jobInfo, AtomicLong minCheckpointedOffset); // TODO add interval?
+  void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
+      ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets); // TODO add interval?
   void close();
 }

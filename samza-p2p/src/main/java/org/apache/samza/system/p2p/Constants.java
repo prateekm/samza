@@ -59,7 +59,7 @@ public class Constants {
   public static final int OPCODE_WRITE_INT = 2;
   public static final byte[] OPCODE_WRITE = Ints.toByteArray(OPCODE_WRITE_INT);
 
-  private static final String STATE_BASE_PATH = "state";
+  private static final String STATE_BASE_PATH = "/Users/prateekm/code/work/state";
   private static final String PERSISTENT_QUEUE_BASE_PATH = "stores/producer";
   private static final String CONSUMER_PORTS_BASE_PATH = "ports";
   private static final String CHECKPOINTS_BASE_PATH = "checkpoints";

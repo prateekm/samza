@@ -20,8 +20,7 @@ package org.apache.samza.system.p2p.checkpoint;
 
 import java.nio.file.NoSuchFileException;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
-import org.apache.samza.SamzaException;
+import java.util.concurrent.ConcurrentMap;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.p2p.Constants;
 import org.apache.samza.system.p2p.Util;
@@ -35,34 +34,30 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
   private volatile boolean shutdown = false;
 
   @Override
-  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo, AtomicLong minCheckpointedOffset) {
+  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
+      ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets) {
     this.watcher = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
           try {
-            long minOffset = Long.MAX_VALUE;
-            List<TaskName> tasks = jobInfo.getAllTasks(); // TODO why only for own tasks? shouldn't this be all tasks
+            List<TaskName> tasks = jobInfo.getAllTasks();
             for (TaskName taskName : tasks) {
               if (taskName.getTaskName().startsWith("Source")) continue; // only check checkpoints for sinks
 
               long[] offsets =
                   Util.parseOffsets(Util.readFileString(Constants.getTaskCheckpointPath(taskName.getTaskName())));
               long producerOffset = offsets[producerId];
-              if (producerOffset < minOffset) {
-                minOffset = producerOffset;
-              }
+              Integer taskId = Integer.valueOf(taskName.getTaskName().split("\\s")[1]);
+              LOGGER.info("Setting checkpointed offset for task: {} to: {}", taskId, producerOffset);
+              lastTaskCheckpointedOffsets.put(taskId, producerOffset);
             }
-
-            if (minOffset == Long.MAX_VALUE) {
-              throw new SamzaException("Invalid producer offsets in offset files.");
-            }
-            minCheckpointedOffset.set(minOffset);
-            LOGGER.info("Setting producer checkpointed offset to: {}", minOffset);
+            lastTaskCheckpointedOffsets.put(-1, 1L); // TODO mark as initialized
           } catch (NoSuchFileException e) {
-            LOGGER.info("No checkpoint file found. Setting minCheckpointedOffset to 0 assuming first deploy.");
-            minCheckpointedOffset.set(0); // TODO extract constant.
+            LOGGER.info("No checkpoint file found.");
+            lastTaskCheckpointedOffsets.put(-1, 1L); // TODO mark as initialized
           } catch (Exception e) {
-            LOGGER.error("Error finding min checkpointed offset for producerId: {}.", producerId, e);
+            LOGGER.error("Error finding last checkpointed offsets for producerId: {}.", producerId, e);
           }
+
           try {
             Thread.sleep(Constants.PRODUCER_CHECKPOINT_WATCHER_INTERVAL);
           } catch (InterruptedException e) {

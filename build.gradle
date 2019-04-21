@@ -879,6 +879,7 @@ project(":samza-test_$scalaSuffix") {
     compile project(":samza-kv-rocksdb_$scalaSuffix")
     compile project(":samza-core_$scalaSuffix")
     compile project(":samza-kafka_$scalaSuffix")
+    compile project(":samza-p2p_$scalaSuffix")
     compile project(":samza-sql_$scalaSuffix")
     runtime project(":samza-yarn_$scalaSuffix")
     runtime project(":samza-hdfs_$scalaSuffix")
@@ -891,6 +892,7 @@ project(":samza-test_$scalaSuffix") {
     testCompile "org.apache.kafka:kafka_$scalaSuffix:$kafkaVersion:test"
     testCompile "com.101tec:zkclient:$zkClientVersion"
     testCompile project(":samza-kafka_$scalaSuffix")
+    testCompile project(":samza-p2p_$scalaSuffix")
     testCompile "org.apache.kafka:kafka_$scalaSuffix:$kafkaVersion:test"
     testCompile "org.apache.kafka:kafka-clients:$kafkaVersion:test"
     testCompile project(":samza-core_$scalaSuffix").sourceSets.test.output

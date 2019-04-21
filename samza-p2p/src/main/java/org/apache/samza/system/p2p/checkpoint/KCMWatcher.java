@@ -18,16 +18,21 @@
  */
 package org.apache.samza.system.p2p.checkpoint;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentMap;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.samza.checkpoint.Checkpoint;
 import org.apache.samza.checkpoint.CheckpointManager;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.p2p.Util;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class KCMWatcher implements CheckpointWatcher {
+  private static final Logger LOGGER = LoggerFactory.getLogger(KCMWatcher.class);
+
   private volatile boolean shutdown;
   private Thread watcherThread;
   private CheckpointManager checkpointManager;
@@ -38,22 +43,34 @@ public class KCMWatcher implements CheckpointWatcher {
     this.allTasks = allTasks;
   }
 
-  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo, AtomicLong minCheckpointedOffset) {
+  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo, ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets) {
     allTasks.forEach(checkpointManager::register);
     checkpointManager.start();
     this.watcherThread = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
-          long minOffset = allTasks.stream()
-              .map(checkpointManager::readLastCheckpoint)
-              .map(cp -> cp.getOffsets().entrySet().stream()
-                  .filter(e -> e.getKey().getSystemStream().getSystem().equals(systemName))
-                  .map(Map.Entry::getValue).findFirst()
-                  .get())
-              .min(Comparator.comparingLong(o -> Util.parseOffsets(o)[producerId]))
-              .map(Long::valueOf).get();
-          minCheckpointedOffset.set(minOffset);
+          allTasks.stream()
+              .filter(tn -> tn.getTaskName().contains("Sink")) // TODO FIX only updating sink checkpoints for now
+              .map(taskName -> {
+                  Checkpoint checkpoint = checkpointManager.readLastCheckpoint(taskName);
+                  LOGGER.info("Read Task: {} checkpoint: {}", taskName, checkpoint);
+                  return Pair.of(taskName, checkpoint);
+                })
+              .filter(p -> p.getRight() != null && !p.getRight().getOffsets().isEmpty())
+              .map(p -> {
+                  String p2pOffset = p.getRight().getOffsets().entrySet().stream() // find task ssps on the p2p system
+                      .filter(e -> e.getKey().getSystemStream().getSystem().equals(systemName))
+                      .map(Map.Entry::getValue).findFirst().get();
+                  return Pair.of(p.getLeft(), p2pOffset); // TODO FIX assumes single p2p SSP per task
+                })
+              .forEach(p -> {
+                  LOGGER.info("Setting Task: {} P2P SSP checkpointed offset to: {}", p.getLeft(), p.getRight());
+                  Integer taskId = Integer.valueOf(p.getLeft().getTaskName().split("\\s")[1]);
+                  lastTaskCheckpointedOffsets.put(taskId, Util.parseOffsets(p.getRight())[producerId]);
+                });
+          lastTaskCheckpointedOffsets.put(-1, -1L); // TODO fix 'hasUpdatedOnce'
+
           try {
-            Thread.sleep(10000);
+            Thread.sleep(1000);
           } catch (InterruptedException e) {
             // ignore
           }

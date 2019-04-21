@@ -30,16 +30,18 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.samza.application.SamzaApplication;
+import org.apache.samza.checkpoint.kafka.KafkaCheckpointManagerFactory;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.KafkaConfig;
 import org.apache.samza.config.MapConfig;
-import org.apache.samza.execution.TestStreamManager;
 import org.apache.samza.runtime.ApplicationRunner;
 import org.apache.samza.runtime.ApplicationRunners;
 import org.apache.samza.test.harness.IntegrationTestHarness;
 
-import static org.apache.kafka.clients.consumer.ConsumerConfig.*;
-import static org.apache.kafka.clients.producer.ProducerConfig.*;
+import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
 
 
 /**
@@ -183,7 +185,8 @@ public class StreamApplicationIntegrationTestHarness extends IntegrationTestHarn
     configMap.put("job.default.system", "kafka");
     configMap.put("job.coordinator.replication.factor", "1");
     configMap.put("task.window.ms", "1000");
-    configMap.put("task.checkpoint.factory", TestStreamManager.MockCheckpointManagerFactory.class.getName());
+    configMap.put("task.checkpoint.factory", KafkaCheckpointManagerFactory.class.getName());
+    configMap.put("task.checkpoint.replication.factor", "1");
 
     // This is to prevent tests from taking a long time to stop after they're done. The issue is that
     // tearDown currently doesn't call runner.kill(app), and shuts down the Kafka and ZK servers immediately.

@@ -19,6 +19,7 @@
 
 package org.apache.samza.checkpoint.kafka
 
+import java.util
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -33,9 +34,9 @@ import org.apache.samza.metrics.MetricsRegistry
 import org.apache.samza.serializers.CheckpointSerde
 import org.apache.samza.system._
 import org.apache.samza.system.kafka.KafkaStreamSpec
-import org.apache.samza.util.{ExponentialSleepStrategy, Logging}
+import org.apache.samza.util.Logging
 import org.apache.samza.{Partition, SamzaException}
-
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 /**
@@ -70,7 +71,7 @@ class KafkaCheckpointManager(checkpointSpec: KafkaStreamSpec,
   val systemAdmin = systemFactory.getAdmin(checkpointSystem, config)
 
   var taskNames: Set[TaskName] = Set[TaskName]()
-  var taskNamesToCheckpoints: Map[TaskName, Checkpoint] = _
+  var taskNamesToCheckpoints: util.Map[TaskName, Checkpoint] = new util.HashMap()
 
   val producerRef: AtomicReference[SystemProducer] = new AtomicReference[SystemProducer](getSystemProducer())
   val producerCreationLock: Object = new Object
@@ -128,15 +129,8 @@ class KafkaCheckpointManager(checkpointSpec: KafkaStreamSpec,
 
     info(s"Reading checkpoint for taskName $taskName")
 
-    if (taskNamesToCheckpoints == null) {
-      info("Reading checkpoints for the first time")
-      taskNamesToCheckpoints = readCheckpoints()
-      // Stop the system consumer since we only need to read checkpoints once
-      info("Stopping system consumer.")
-      systemConsumer.stop()
-    }
-
-    val checkpoint: Checkpoint = taskNamesToCheckpoints.getOrElse(taskName, null)
+    taskNamesToCheckpoints.putAll(readCheckpoints().asJava)
+    val checkpoint: Checkpoint = taskNamesToCheckpoints.get(taskName)
 
     info(s"Got checkpoint state for taskName - $taskName: $checkpoint")
     checkpoint

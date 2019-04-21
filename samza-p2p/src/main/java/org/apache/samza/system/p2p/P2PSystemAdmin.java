@@ -19,8 +19,11 @@
 package org.apache.samza.system.p2p;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import org.apache.samza.Partition;
+import org.apache.samza.config.Config;
 import org.apache.samza.system.StreamSpec;
 import org.apache.samza.system.StreamValidationException;
 import org.apache.samza.system.SystemAdmin;
@@ -29,6 +32,12 @@ import org.apache.samza.system.SystemStreamMetadata;
 import org.apache.samza.system.SystemStreamPartition;
 
 public class P2PSystemAdmin implements SystemAdmin {
+  private final Config config;
+
+  public P2PSystemAdmin(Config config) {
+    this.config = config;
+  }
+
   @Override
   public void start() { }
 
@@ -42,17 +51,13 @@ public class P2PSystemAdmin implements SystemAdmin {
 
   @Override
   public Map<String, SystemStreamMetadata> getSystemStreamMetadata(Set<String> streamNames) {
-    return Collections.emptyMap(); // TODO implement
-  }
-
-  @Override
-  public Map<SystemStreamPartition, SystemStreamMetadata.SystemStreamPartitionMetadata> getSSPMetadata(Set<SystemStreamPartition> ssps) {
-    return Collections.emptyMap(); // TODO implement
-  }
-
-  @Override
-  public Map<String, SystemStreamMetadata> getSystemStreamPartitionCounts(Set<String> streamNames, long cacheTTL) {
-    return Collections.emptyMap(); // TODO implement
+    HashMap<String, SystemStreamMetadata> metadata = new HashMap<>();
+    HashMap<Partition, SystemStreamMetadata.SystemStreamPartitionMetadata> partitionMetadata = new HashMap<>();
+    for (int i = 0; i < 2; i++) { // TODO fix default of 2 to be num tasks
+      partitionMetadata.put(new Partition(i), new SystemStreamMetadata.SystemStreamPartitionMetadata("0", "0", "0"));
+    }
+    streamNames.forEach(streamName -> metadata.put(streamName, new SystemStreamMetadata(streamName, partitionMetadata)));
+    return metadata;
   }
 
   @Override
