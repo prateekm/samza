@@ -23,6 +23,7 @@ import java.util.Map;
 import org.apache.samza.coordinator.stream.messages.CoordinatorStreamMessage;
 import org.apache.samza.coordinator.stream.messages.SetChangelogMapping;
 import org.apache.samza.coordinator.stream.messages.SetContainerHostMapping;
+import org.apache.samza.coordinator.stream.messages.SetP2PConsumerPortMapping;
 import org.apache.samza.coordinator.stream.messages.SetTaskContainerMapping;
 import org.apache.samza.coordinator.stream.messages.SetConfig;
 import org.apache.samza.coordinator.stream.messages.SetTaskPartitionMapping;
@@ -69,6 +70,9 @@ public class CoordinatorStreamValueSerde implements Serde<String> {
     } else if (type.equalsIgnoreCase(SetTaskPartitionMapping.TYPE)) {
       SetTaskPartitionMapping setTaskPartitionMapping = new SetTaskPartitionMapping(message);
       return setTaskPartitionMapping.getTaskNames();
+    } else if (type.equalsIgnoreCase(SetP2PConsumerPortMapping.TYPE)) {
+      SetP2PConsumerPortMapping setP2PConsumerPortMapping = new SetP2PConsumerPortMapping(message);
+      return setP2PConsumerPortMapping.getPort();
     } else {
       throw new SamzaException(String.format("Unknown coordinator stream message type: %s", type));
     }
@@ -94,6 +98,9 @@ public class CoordinatorStreamValueSerde implements Serde<String> {
     } else if (type.equalsIgnoreCase(SetTaskPartitionMapping.TYPE)) {
       SetTaskPartitionMapping setTaskPartitionMapping = new SetTaskPartitionMapping(SOURCE, "", value);
       return messageSerde.toBytes(setTaskPartitionMapping.getMessageMap());
+    } else if (type.equalsIgnoreCase(SetP2PConsumerPortMapping.TYPE)) {
+      SetP2PConsumerPortMapping setP2PConsumerPortMapping = new SetP2PConsumerPortMapping(SOURCE, "", value);
+      return messageSerde.toBytes(setP2PConsumerPortMapping.getMessageMap());
     } else {
       throw new SamzaException(String.format("Unknown coordinator stream message type: %s", type));
     }

@@ -77,7 +77,7 @@ public class Container {
 
     P2PSystemProducer producer = new P2PSystemProducer(Constants.SYSTEM_NAME, containerId, new RocksDBPersistentQueueFactory(),
         new FileCheckpointWatcherFactory(), config, metricsRegistry, jobInfo);
-    P2PSystemConsumer consumer = new P2PSystemConsumer(containerId, new NoOpMetricsRegistry(), System::currentTimeMillis);
+    P2PSystemConsumer consumer = new P2PSystemConsumer(containerId, config, new NoOpMetricsRegistry(), System::currentTimeMillis);
     Container container = new Container(containerId, producer, consumer, jobInfo);
     container.start();
   }

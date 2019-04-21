@@ -75,7 +75,7 @@ public class KCMWatcher implements CheckpointWatcher {
             // ignore
           }
         }
-      });
+      }, "KCMWatcher");
     watcherThread.start();
   }
 

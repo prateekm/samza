@@ -33,7 +33,7 @@ public class P2PSystemFactory implements SystemFactory {
   @Override
   public SystemConsumer getConsumer(String systemName, Config config, MetricsRegistry registry) {
     String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); /* TODO only works in YARN */
-    return new P2PSystemConsumer(Integer.valueOf(containerId), registry, System::currentTimeMillis);
+    return new P2PSystemConsumer(Integer.valueOf(containerId), config, registry, System::currentTimeMillis);
   }
 
   @Override

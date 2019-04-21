@@ -31,8 +31,6 @@ import org.apache.samza.job.model.ContainerModel;
 import org.apache.samza.job.model.JobModel;
 import org.apache.samza.job.model.TaskModel;
 import org.apache.samza.system.SystemStreamPartition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class JobModelJobInfo implements JobInfo {
   private final JobModel jobModel;

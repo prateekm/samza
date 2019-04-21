@@ -38,12 +38,17 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
+import org.apache.samza.coordinator.metadatastore.CoordinatorStreamStore;
+import org.apache.samza.coordinator.metadatastore.NamespaceAwareCoordinatorStreamStore;
+import org.apache.samza.coordinator.stream.messages.SetP2PConsumerPortMapping;
 import org.apache.samza.metrics.MetricsRegistry;
+import org.apache.samza.metrics.MetricsRegistryMap;
 import org.apache.samza.system.OutgoingMessageEnvelope;
 import org.apache.samza.system.SystemProducer;
 import org.apache.samza.system.p2p.checkpoint.CheckpointWatcher;
 import org.apache.samza.system.p2p.checkpoint.CheckpointWatcherFactory;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
+import org.apache.samza.system.p2p.jobinfo.P2PPortManager;
 import org.apache.samza.system.p2p.pq.PersistentQueue;
 import org.apache.samza.system.p2p.pq.PersistentQueueFactory;
 import org.apache.samza.system.p2p.pq.PersistentQueueIterator;
@@ -59,6 +64,8 @@ public class P2PSystemProducer implements SystemProducer {
   private final Config config;
   private final MetricsRegistry metricsRegistry;
   private final JobInfo jobInfo;
+  private final CoordinatorStreamStore coordinatorStreamStore;
+  private final P2PPortManager portManager;
 
   private final Map<String, PersistentQueue> persistentQueues;
   private final Set<ProducerConnectionHandler> connectionHandlers;
@@ -75,6 +82,8 @@ public class P2PSystemProducer implements SystemProducer {
     this.config = config;
     this.metricsRegistry = metricsRegistry;
     this.jobInfo = jobInfo;
+    this.coordinatorStreamStore = new CoordinatorStreamStore(config, new MetricsRegistryMap());
+    this.portManager = new P2PPortManager(new NamespaceAwareCoordinatorStreamStore(coordinatorStreamStore, SetP2PConsumerPortMapping.TYPE));
 
     this.persistentQueues = new HashMap<>();
     this.connectionHandlers = new HashSet<>();
@@ -85,6 +94,7 @@ public class P2PSystemProducer implements SystemProducer {
 
   @Override
   public void start() {
+    coordinatorStreamStore.init();
     checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, lastTaskCheckpointedOffset);
     while (lastTaskCheckpointedOffset.get(-1) == null) { // TODO FIX using dummy value for 'hasBeenUpdated'
       try {
@@ -109,7 +119,7 @@ public class P2PSystemProducer implements SystemProducer {
         PersistentQueue persistentQueue =
             persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
         persistentQueues.put(String.valueOf(consumerId), persistentQueue);
-        connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue));
+        connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, portManager));
       }
       connectionHandlers.forEach(Thread::start);
     } catch (Exception e) {
@@ -123,6 +133,7 @@ public class P2PSystemProducer implements SystemProducer {
     checkpointWatcher.close();
     connectionHandlers.forEach(ProducerConnectionHandler::close);
     persistentQueues.forEach((id, pq) -> pq.close());
+    coordinatorStreamStore.close();
   }
 
   @Override
@@ -229,15 +240,17 @@ public class P2PSystemProducer implements SystemProducer {
     private final int producerId;
     private final int consumerId;
     private final PersistentQueue persistentQueue;
+    private final P2PPortManager portManager;
 
     private Socket socket = new Socket();
     private volatile boolean shutdown = false;
 
-    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue) {
+    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, P2PPortManager portManager) {
       super("ProducerConnectionHandler " + consumerId);
       this.producerId = producerId;
       this.consumerId = consumerId;
       this.persistentQueue = persistentQueue;
+      this.portManager = portManager;
     }
 
     public void run() {
@@ -246,8 +259,18 @@ public class P2PSystemProducer implements SystemProducer {
         while (!shutdown && !socket.isConnected()) {
           socket.setTcpNoDelay(true);
           try {
-            // read the consumer port from file every time.
-            long consumerPort = Util.readFileLong(Constants.getConsumerPortPath(consumerId));
+            // read the consumer port from metadata store every time.
+            long consumerPort = -1;
+            while (consumerPort == -1) {
+              Map<String, String> containerMapping = portManager.readConsumerPorts().get(String.valueOf(consumerId));
+              if (containerMapping != null && !containerMapping.isEmpty()) {
+                consumerPort = Long.valueOf(containerMapping.get(SetP2PConsumerPortMapping.PORT_KEY));
+              } else {
+                LOGGER.info("Waiting for port to become available for Consumer: {}", consumerId);
+                Thread.sleep(1000);
+              }
+            }
+            LOGGER.info("Got Port: {} for Consumer: {}", consumerPort, consumerId);
             socket.connect(new InetSocketAddress(Constants.SERVER_HOST, (int) consumerPort), Constants.PRODUCER_CH_CONNECTION_TIMEOUT);
             LOGGER.info("Connected to Consumer: {} at Port: {} in Producer: {}", consumerId, consumerPort, producerId);
             send(socket); // blocks
