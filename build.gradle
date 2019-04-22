@@ -411,7 +411,6 @@ project(":samza-p2p_$scalaSuffix") {
     compile project(':samza-api')
     compile project(":samza-core_$scalaSuffix") // TODO remove
     compile "com.google.guava:guava:$guavaVersion"
-    compile "io.netty:netty-all:$nettyVersion"
     compile "org.apache.commons:commons-lang3:$commonsLang3Version"
     compile "org.rocksdb:rocksdbjni:$rocksdbVersion"
     compile "org.scala-lang:scala-library:$scalaVersion"
