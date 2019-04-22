@@ -23,6 +23,6 @@ import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public interface CheckpointWatcher {
   void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
-      ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets); // TODO add interval?
+      ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets);
   void close();
 }

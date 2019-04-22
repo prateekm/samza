@@ -37,8 +37,6 @@ public class Constants {
   public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
   public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
 
-  public static final String SERVER_HOST = "127.0.0.1"; // TODO read from locality
-
   public static final int OPCODE_SYNC_INT = 1;
   public static final byte[] OPCODE_SYNC = Ints.toByteArray(OPCODE_SYNC_INT);
   public static final int OPCODE_WRITE_INT = 2;
