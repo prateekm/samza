@@ -38,8 +38,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
+import org.apache.samza.config.JobConfig;
+import org.apache.samza.container.LocalityManager;
 import org.apache.samza.coordinator.metadatastore.CoordinatorStreamStore;
 import org.apache.samza.coordinator.metadatastore.NamespaceAwareCoordinatorStreamStore;
+import org.apache.samza.coordinator.stream.messages.SetContainerHostMapping;
 import org.apache.samza.coordinator.stream.messages.SetP2PConsumerPortMapping;
 import org.apache.samza.metrics.MetricsRegistry;
 import org.apache.samza.metrics.MetricsRegistryMap;
@@ -65,6 +68,7 @@ public class P2PSystemProducer implements SystemProducer {
   private final MetricsRegistry metricsRegistry;
   private final JobInfo jobInfo;
   private final CoordinatorStreamStore coordinatorStreamStore;
+  private final LocalityManager localityManager;
   private final P2PPortManager portManager;
 
   private final Map<String, PersistentQueue> persistentQueues;
@@ -83,6 +87,7 @@ public class P2PSystemProducer implements SystemProducer {
     this.metricsRegistry = metricsRegistry;
     this.jobInfo = jobInfo;
     this.coordinatorStreamStore = new CoordinatorStreamStore(config, new MetricsRegistryMap());
+    this.localityManager = new LocalityManager(new NamespaceAwareCoordinatorStreamStore(coordinatorStreamStore, SetContainerHostMapping.TYPE));
     this.portManager = new P2PPortManager(new NamespaceAwareCoordinatorStreamStore(coordinatorStreamStore, SetP2PConsumerPortMapping.TYPE));
 
     this.persistentQueues = new HashMap<>();
@@ -106,10 +111,10 @@ public class P2PSystemProducer implements SystemProducer {
       } catch (InterruptedException e) { }
     }
 
-    nextOffset.set(getMaxCheckpointedOffset() + 1);
+    nextOffset.set(getMaxCheckpointedOffset() + 1); // 0 if no checkpoint
 
     try {
-      for (int consumerId = 0; consumerId < 2 /** TODO change to container count **/; consumerId++) {
+      for (int consumerId = 0; consumerId < config.getInt(JobConfig.JOB_CONTAINER_COUNT()); consumerId++) {
         try {
           Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
         } catch (NoSuchFileException e) {
@@ -119,7 +124,7 @@ public class P2PSystemProducer implements SystemProducer {
         PersistentQueue persistentQueue =
             persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
         persistentQueues.put(String.valueOf(consumerId), persistentQueue);
-        connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, portManager));
+        connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, localityManager, portManager));
       }
       connectionHandlers.forEach(Thread::start);
     } catch (Exception e) {
@@ -161,7 +166,7 @@ public class P2PSystemProducer implements SystemProducer {
     long offset = this.nextOffset.incrementAndGet();
     try {
       int destinationConsumerId = jobInfo.getConsumerFor(partition);
-      int destinationTaskId = destinationConsumerId; // TODO FIX this assumes num partition = num task = num containers
+      int destinationTaskId = destinationConsumerId; // TODO FIX this assumes num p2p partition = num task = num containers
       lastTaskSentOffset.put(destinationTaskId, offset);
       LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
       // TODO can result in out of order appends (offset 2 append before offset 1).
@@ -214,7 +219,7 @@ public class P2PSystemProducer implements SystemProducer {
       }
     }
 
-    long currentMaxCheckpointedOffset = getMaxCheckpointedOffset(); // TODO max sent offset?
+    long currentMaxCheckpointedOffset = getMinCheckpointedOffset(); // TODO save + use next offset at beginning?
     LOGGER.info("Deleting data up to offset: {}", currentMaxCheckpointedOffset);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
@@ -234,22 +239,29 @@ public class P2PSystemProducer implements SystemProducer {
     return lastTaskCheckpointedOffset.values().stream().max(Comparator.comparingLong(l -> (Long) l)).get();
   }
 
+  private Long getMinCheckpointedOffset() {
+    return lastTaskCheckpointedOffset.values().stream().min(Comparator.comparingLong(l -> (Long) l)).get();
+  }
+
   private static class ProducerConnectionHandler extends Thread {
     private static final Logger LOGGER = LoggerFactory.getLogger(ProducerConnectionHandler.class);
 
     private final int producerId;
     private final int consumerId;
     private final PersistentQueue persistentQueue;
+    private final LocalityManager localityManager;
     private final P2PPortManager portManager;
 
     private Socket socket = new Socket();
     private volatile boolean shutdown = false;
 
-    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, P2PPortManager portManager) {
+    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue,
+        LocalityManager localityManager, P2PPortManager portManager) {
       super("ProducerConnectionHandler " + consumerId);
       this.producerId = producerId;
       this.consumerId = consumerId;
       this.persistentQueue = persistentQueue;
+      this.localityManager = localityManager;
       this.portManager = portManager;
     }
 
@@ -260,19 +272,10 @@ public class P2PSystemProducer implements SystemProducer {
           socket.setTcpNoDelay(true);
           try {
             // read the consumer port from metadata store every time.
-            long consumerPort = -1;
-            while (consumerPort == -1) {
-              Map<String, String> containerMapping = portManager.readConsumerPorts().get(String.valueOf(consumerId));
-              if (containerMapping != null && !containerMapping.isEmpty()) {
-                consumerPort = Long.valueOf(containerMapping.get(SetP2PConsumerPortMapping.PORT_KEY));
-              } else {
-                LOGGER.info("Waiting for port to become available for Consumer: {}", consumerId);
-                Thread.sleep(1000);
-              }
-            }
-            LOGGER.info("Got Port: {} for Consumer: {}", consumerPort, consumerId);
-            socket.connect(new InetSocketAddress(Constants.SERVER_HOST, (int) consumerPort), Constants.PRODUCER_CH_CONNECTION_TIMEOUT);
-            LOGGER.info("Connected to Consumer: {} at Port: {} in Producer: {}", consumerId, consumerPort, producerId);
+            InetSocketAddress consumerAddress = getConsumerAddress();
+            LOGGER.info("Got address: {} for Consumer: {}", consumerAddress, consumerId);
+            socket.connect(consumerAddress, Constants.PRODUCER_CH_CONNECTION_TIMEOUT);
+            LOGGER.info("Connected to Consumer: {} at Port: {} in Producer: {}", consumerId, consumerAddress, producerId);
             send(socket); // blocks
           } catch (Exception ce) {
             LOGGER.error("Error in connection to Consumer: {} in Producer: {}", consumerId, producerId, ce);
@@ -284,6 +287,32 @@ public class P2PSystemProducer implements SystemProducer {
       } catch (Exception e) {
         throw new SamzaException("Error in ProducerConnectionHandler to Consumer: " + consumerId + " in Producer: " + producerId, e);
       }
+    }
+
+    private InetSocketAddress getConsumerAddress() throws InterruptedException {
+      String consumerHost = null;
+      long consumerPort = -1;
+      while (consumerHost == null || consumerPort == -1) { // TODO is not atomic, maybe retry will fix
+        Map<String, String> localityMapping = localityManager.readContainerLocality().get(String.valueOf(consumerId));
+        if (localityMapping != null && !localityMapping.isEmpty()) {
+          consumerHost = localityMapping.get(SetContainerHostMapping.HOST_KEY);
+        } else {
+          LOGGER.info("Waiting for host to become available for Consumer: {}", consumerId);
+          Thread.sleep(1000);
+          continue; // no point waiting for port, retry
+        }
+
+        Map<String, String> containerMapping = portManager.readConsumerPorts().get(String.valueOf(consumerId));
+        if (containerMapping != null && !containerMapping.isEmpty()) {
+          consumerPort = Long.valueOf(containerMapping.get(SetP2PConsumerPortMapping.PORT_KEY));
+        } else {
+          LOGGER.info("Waiting for port to become available for Consumer: {}", consumerId);
+          Thread.sleep(1000);
+          continue;
+        }
+      }
+
+      return new InetSocketAddress(consumerHost, (int) consumerPort);
     }
 
     void close() {

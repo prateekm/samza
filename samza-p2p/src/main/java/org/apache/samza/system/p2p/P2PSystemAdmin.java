@@ -53,7 +53,8 @@ public class P2PSystemAdmin implements SystemAdmin {
   public Map<String, SystemStreamMetadata> getSystemStreamMetadata(Set<String> streamNames) {
     HashMap<String, SystemStreamMetadata> metadata = new HashMap<>();
     HashMap<Partition, SystemStreamMetadata.SystemStreamPartitionMetadata> partitionMetadata = new HashMap<>();
-    for (int i = 0; i < 2; i++) { // TODO fix default of 2 to be num tasks
+    // TODO assumes num p2p partitions = num input partitions
+    for (int i = 0; i < config.getInt(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY); i++) {
       partitionMetadata.put(new Partition(i), new SystemStreamMetadata.SystemStreamPartitionMetadata("0", "0", "0"));
     }
     streamNames.forEach(streamName -> metadata.put(streamName, new SystemStreamMetadata(streamName, partitionMetadata)));
@@ -62,7 +63,7 @@ public class P2PSystemAdmin implements SystemAdmin {
 
   @Override
   public Integer offsetComparator(String offset1, String offset2) {
-    return 0; // TODO implement
+    return 0; // TODO implement?
   }
 
   //======================================== Default / No-op implementations ========================================//

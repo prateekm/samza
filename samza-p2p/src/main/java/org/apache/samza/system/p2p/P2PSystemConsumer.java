@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import org.apache.samza.Partition;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
+import org.apache.samza.config.JobConfig;
 import org.apache.samza.coordinator.metadatastore.CoordinatorStreamStore;
 import org.apache.samza.coordinator.metadatastore.NamespaceAwareCoordinatorStreamStore;
 import org.apache.samza.coordinator.stream.messages.SetP2PConsumerPortMapping;
@@ -58,7 +59,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     this.consumerId = consumerId;
     this.connectionHandlers = new LinkedHashSet<>();
     this.messageSink = new MessageSink(this);
-    this.producerOffsets = new AtomicLongArray(new long[Constants.NUM_CONTAINERS]);
+    this.producerOffsets = new AtomicLongArray(new long[config.getInt(JobConfig.JOB_CONTAINER_COUNT())]);
     this.acceptorThread = new Thread(() -> {
         ConsumerConnectionHandler connectionHandler = null;
         try (ServerSocket serverSocket = new ServerSocket()) {
@@ -67,7 +68,8 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
           CoordinatorStreamStore coordinatorStreamStore = new CoordinatorStreamStore(config, new MetricsRegistryMap());
           coordinatorStreamStore.init();
-          P2PPortManager portManager = new P2PPortManager(new NamespaceAwareCoordinatorStreamStore(coordinatorStreamStore, SetP2PConsumerPortMapping.TYPE));
+          P2PPortManager portManager = new P2PPortManager(
+              new NamespaceAwareCoordinatorStreamStore(coordinatorStreamStore, SetP2PConsumerPortMapping.TYPE));
           LOGGER.info("Writing Port: {} for Consumer: {}", consumerPort, consumerId);
           portManager.writeConsumerPort(String.valueOf(consumerId), consumerPort);
           coordinatorStreamStore.close();

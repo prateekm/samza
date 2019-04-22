@@ -58,18 +58,18 @@ public class Orchestrator {
   private static void simulateFailures() {
     LOGGER.info("Starting orchestration.");
     ExecutorService executorService = Executors.newFixedThreadPool(3);
-    long finishTimeMs = System.currentTimeMillis() + Duration.ofSeconds(Constants.TOTAL_RUNTIME_SECONDS).toMillis() / 2;
+    long finishTimeMs = System.currentTimeMillis() + Duration.ofSeconds(Constants.Test.TOTAL_RUNTIME_SECONDS).toMillis() / 2;
 
-    for (int i = 0; i < Constants.NUM_CONTAINERS; i++) {
+    for (int i = 0; i < Constants.Test.NUM_CONTAINERS; i++) {
       final int id = i;
       executorService.submit(() -> {
           try {
             while (!Thread.currentThread().isInterrupted()) {
               try {
                 int remainingTimeInSeconds =  Math.max((int) (finishTimeMs - System.currentTimeMillis()) / 1000, 0);
-                int runtimeInSeconds = Math.min(Constants.MIN_RUNTIME_SECONDS +
-                    RANDOM.nextInt(Constants.MAX_RUNTIME_SECONDS -
-                        Constants.MIN_RUNTIME_SECONDS), remainingTimeInSeconds) + 1;
+                int runtimeInSeconds = Math.min(Constants.Test.MIN_RUNTIME_SECONDS +
+                    RANDOM.nextInt(Constants.Test.MAX_RUNTIME_SECONDS -
+                        Constants.Test.MIN_RUNTIME_SECONDS), remainingTimeInSeconds) + 1;
                 if (runtimeInSeconds <= 0) throw new RuntimeException();
                 LOGGER.info("Starting container " + id + " with runtime " + runtimeInSeconds);
                 new ProcessExecutor().command((getCmd(id)).split("\\s+")) // args must be provided separately from cmd
@@ -85,7 +85,7 @@ public class Orchestrator {
               } catch (Exception e) {
                 LOGGER.error("Unexpected error for container " + id, e);
               }
-              Uninterruptibles.sleepUninterruptibly(Constants.INTERVAL_BETWEEN_RESTART_SECONDS, TimeUnit.SECONDS);
+              Uninterruptibles.sleepUninterruptibly(Constants.Test.INTERVAL_BETWEEN_RESTART_SECONDS, TimeUnit.SECONDS);
             }
             LOGGER.info("Shutting down launcher thread for container " + id);
           } catch (Exception e) {
@@ -93,10 +93,10 @@ public class Orchestrator {
           }
         });
     }
-    Uninterruptibles.sleepUninterruptibly(Constants.TOTAL_RUNTIME_SECONDS / 2, TimeUnit.SECONDS);
+    Uninterruptibles.sleepUninterruptibly(Constants.Test.TOTAL_RUNTIME_SECONDS / 2, TimeUnit.SECONDS);
     LOGGER.info("Shutting down executor service.");
     executorService.shutdownNow();
-    Uninterruptibles.sleepUninterruptibly(Constants.MAX_RUNTIME_SECONDS, TimeUnit.SECONDS); // let running processes die.
+    Uninterruptibles.sleepUninterruptibly(Constants.Test.MAX_RUNTIME_SECONDS, TimeUnit.SECONDS); // let running processes die.
     LOGGER.info("Shut down process execution.");
   }
 

@@ -46,14 +46,14 @@ public class SinkTask {
           if (currentLastReceivedOffset != null) {
             LOGGER.info("Writing checkpoint file with offset: {}", currentLastReceivedOffset);
             try {
-              Util.writeFile(Constants.getTaskCheckpointPath(taskName), currentLastReceivedOffset);
+              Util.writeFile(Constants.Test.getTaskCheckpointPath(taskName), currentLastReceivedOffset);
             } catch (Exception e) {
               throw new SamzaException("Could not write checkpoint file.", e);
             }
           }
 
           try {
-            Thread.sleep(Constants.TASK_FLUSH_INTERVAL);
+            Thread.sleep(Constants.Test.TASK_FLUSH_INTERVAL);
           } catch (InterruptedException e) { }
         }
       }, "TaskCommitThread " + taskName);

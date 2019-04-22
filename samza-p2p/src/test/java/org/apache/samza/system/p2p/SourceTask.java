@@ -19,17 +19,21 @@
 package org.apache.samza.system.p2p;
 
 import java.util.Random;
+import org.apache.samza.config.Config;
+import org.apache.samza.config.TaskConfig;
 import org.apache.samza.system.OutgoingMessageEnvelope;
 import org.apache.samza.system.SystemStream;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.samza.system.p2p.Constants.P2P_SYSTEM_NAME;
+
 public class SourceTask {
   private static final Logger LOGGER = LoggerFactory.getLogger(SourceTask.class);
-  private static final SystemStream SYSTEM_STREAM = Constants.SYSTEM_STREAM;
   private static final Random RANDOM = new Random();
 
+  private final SystemStream p2pSystemStream;
   private final String taskName;
   private final JobInfo jobInfo;
   private final Thread produceThread;
@@ -37,21 +41,23 @@ public class SourceTask {
 
   private volatile boolean shutdown = false;
 
-  SourceTask(String taskName, P2PSystemProducer producer, JobInfo jobInfo) {
+  SourceTask(String taskName, Config config, P2PSystemProducer producer, JobInfo jobInfo) {
     this.taskName = taskName;
     this.jobInfo = jobInfo;
+    String p2pStream = config.get(TaskConfig.INPUT_STREAMS().split(",")[1].split("\\.")[1]);
+    this.p2pSystemStream = new SystemStream(P2P_SYSTEM_NAME, p2pStream);
     this.produceThread = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
-          int keyLength = RANDOM.nextInt(Constants.TASK_MAX_KEY_VALUE_LENGTH);
-          int valueLength = RANDOM.nextInt(Constants.TASK_MAX_KEY_VALUE_LENGTH);
+          int keyLength = RANDOM.nextInt(Constants.Test.TASK_MAX_KEY_VALUE_LENGTH);
+          int valueLength = RANDOM.nextInt(Constants.Test.TASK_MAX_KEY_VALUE_LENGTH);
           byte[] key = new byte[keyLength];
           byte[] value = new byte[valueLength];
           RANDOM.nextBytes(key);
           RANDOM.nextBytes(value);
-          producer.send(taskName, new OutgoingMessageEnvelope(SYSTEM_STREAM, key, value));
+          producer.send(taskName, new OutgoingMessageEnvelope(p2pSystemStream, key, value));
 
           try {
-            Thread.sleep(Constants.TASK_PRODUCE_INTERVAL);
+            Thread.sleep(Constants.Test.TASK_PRODUCE_INTERVAL);
           } catch (InterruptedException e) { }
         }
       }, "TaskProduceThread " + taskName);
@@ -64,7 +70,7 @@ public class SourceTask {
           LOGGER.info("Took {} ms to flush for task {}", System.currentTimeMillis() - startTime, taskName);
 
           try {
-            Thread.sleep(Constants.TASK_FLUSH_INTERVAL);
+            Thread.sleep(Constants.Test.TASK_FLUSH_INTERVAL);
           } catch (InterruptedException e) { }
         }
       }, "TaskCommitThread " + taskName);

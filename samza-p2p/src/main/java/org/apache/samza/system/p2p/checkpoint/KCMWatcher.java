@@ -25,6 +25,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.checkpoint.Checkpoint;
 import org.apache.samza.checkpoint.CheckpointManager;
 import org.apache.samza.container.TaskName;
+import org.apache.samza.system.p2p.Constants;
 import org.apache.samza.system.p2p.Util;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
@@ -52,7 +53,7 @@ public class KCMWatcher implements CheckpointWatcher {
               .filter(tn -> tn.getTaskName().contains("Sink")) // TODO FIX only updating sink checkpoints for now
               .map(taskName -> {
                   Checkpoint checkpoint = checkpointManager.readLastCheckpoint(taskName);
-                  LOGGER.info("Read Task: {} checkpoint: {}", taskName, checkpoint);
+                  LOGGER.trace("Read Task: {} Checkpoint: {}", taskName, checkpoint);
                   return Pair.of(taskName, checkpoint);
                 })
               .filter(p -> p.getRight() != null && !p.getRight().getOffsets().isEmpty())
@@ -63,14 +64,14 @@ public class KCMWatcher implements CheckpointWatcher {
                   return Pair.of(p.getLeft(), p2pOffset); // TODO FIX assumes single p2p SSP per task
                 })
               .forEach(p -> {
-                  LOGGER.info("Setting Task: {} P2P SSP checkpointed offset to: {}", p.getLeft(), p.getRight());
+                  LOGGER.trace("Setting Task: {} P2P SSP checkpointed offset to: {}", p.getLeft(), p.getRight());
                   Integer taskId = Integer.valueOf(p.getLeft().getTaskName().split("\\s")[1]);
                   lastTaskCheckpointedOffsets.put(taskId, Util.parseOffsets(p.getRight())[producerId]);
                 });
           lastTaskCheckpointedOffsets.put(-1, -1L); // TODO fix 'hasUpdatedOnce'
 
           try {
-            Thread.sleep(1000);
+            Thread.sleep(Constants.PRODUCER_CHECKPOINT_WATCHER_INTERVAL);
           } catch (InterruptedException e) {
             // ignore
           }

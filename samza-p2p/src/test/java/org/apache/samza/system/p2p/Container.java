@@ -22,15 +22,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.samza.config.Config;
+import org.apache.samza.config.JobConfig;
 import org.apache.samza.config.MapConfig;
 import org.apache.samza.metrics.MetricsRegistry;
 import org.apache.samza.system.IncomingMessageEnvelope;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.checkpoint.FileCheckpointWatcherFactory;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
-import org.apache.samza.system.p2p.jobinfo.MCMTJobInfo;
-import org.apache.samza.system.p2p.jobinfo.SCMTJobInfo;
-import org.apache.samza.system.p2p.jobinfo.SCSTJobInfo;
 import org.apache.samza.system.p2p.pq.RocksDBPersistentQueueFactory;
 import org.apache.samza.util.NoOpMetricsRegistry;
 import org.slf4j.Logger;
@@ -51,7 +50,7 @@ public class Container {
   private final int containerId;
   private final P2PSystemProducer producer;
   private final P2PSystemConsumer consumer;
-  private final Set<SystemStreamPartition> pollSet;
+  private final Set<SystemStreamPartition> p2pSSPs;
   private final Map<Integer, SourceTask> sourceTasks;
   private final Map<Integer, SinkTask> sinkTasks;
 
@@ -62,31 +61,25 @@ public class Container {
       });
     int containerId = Integer.valueOf(args[0]); // == taskId == producerId == consumerId
     Map<String, String> configMap = new HashMap<>();
+    configMap.put(JobConfig.JOB_CONTAINER_COUNT(), String.valueOf(Constants.Test.NUM_CONTAINERS));
+    configMap.put(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY, String.valueOf(Constants.Test.NUM_PARTITIONS));
     MapConfig config = new MapConfig(configMap);
     MetricsRegistry metricsRegistry = new NoOpMetricsRegistry();
-    JobInfo jobInfo;
-    if (Constants.NUM_CONTAINERS == 1) {
-      if (Constants.NUM_PARTITIONS == 1) {
-        jobInfo = new SCSTJobInfo();
-      } else {
-        jobInfo = new SCMTJobInfo();
-      }
-    } else {
-      jobInfo = new MCMTJobInfo();
-    }
 
-    P2PSystemProducer producer = new P2PSystemProducer(Constants.SYSTEM_NAME, containerId, new RocksDBPersistentQueueFactory(),
+    JobInfo jobInfo = new JobInfo(config);
+
+    P2PSystemProducer producer = new P2PSystemProducer(Constants.P2P_SYSTEM_NAME, containerId, new RocksDBPersistentQueueFactory(),
         new FileCheckpointWatcherFactory(), config, metricsRegistry, jobInfo);
     P2PSystemConsumer consumer = new P2PSystemConsumer(containerId, config, new NoOpMetricsRegistry(), System::currentTimeMillis);
-    Container container = new Container(containerId, producer, consumer, jobInfo);
+    Container container = new Container(containerId, config, producer, consumer, jobInfo);
     container.start();
   }
 
-  private Container(int containerId, P2PSystemProducer producer, P2PSystemConsumer consumer, JobInfo jobInfo) {
+  private Container(int containerId, Config config, P2PSystemProducer producer, P2PSystemConsumer consumer, JobInfo jobInfo) {
     this.containerId = containerId;
     this.producer = producer;
     this.consumer = consumer;
-    this.pollSet = jobInfo.getSSPsFor(containerId);
+    this.p2pSSPs = jobInfo.getP2PSSPsFor(containerId);
     this.sourceTasks = new HashMap<>();
     this.sinkTasks = new HashMap<>();
 
@@ -95,7 +88,7 @@ public class Container {
         String[] taskNameParts = taskNameStr.split("\\s");
         String partitionId = taskNameParts[2];
         if (taskNameParts[0].startsWith("Source")) {
-          sourceTasks.put(Integer.valueOf(partitionId), new SourceTask(taskNameStr, producer, jobInfo));
+          sourceTasks.put(Integer.valueOf(partitionId), new SourceTask(taskNameStr, config, producer, jobInfo));
         } else {
           sinkTasks.put(Integer.valueOf(partitionId), new SinkTask(taskNameStr, jobInfo));
         }
@@ -107,12 +100,12 @@ public class Container {
     producer.start();
     sourceTasks.forEach((partition, task) -> task.start());
     sinkTasks.forEach((partition, task) -> task.start());
-    pollSet.forEach(ssp -> consumer.register(ssp, ""));
+    p2pSSPs.forEach(ssp -> consumer.register(ssp, ""));
 
     Thread pollThread = new Thread(() -> {
         try {
           while (!Thread.currentThread().isInterrupted()) {
-            Map<SystemStreamPartition, List<IncomingMessageEnvelope>> pollResults = consumer.poll(pollSet, 1000);
+            Map<SystemStreamPartition, List<IncomingMessageEnvelope>> pollResults = consumer.poll(p2pSSPs, 1000);
             pollResults.forEach((ssp, imes) -> {
                 int partitionId = ssp.getPartition().getPartitionId();
                 SinkTask task = sinkTasks.get(partitionId);

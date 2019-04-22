@@ -18,35 +18,40 @@
  */
 package org.apache.samza.system.p2p.jobinfo;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import org.apache.samza.Partition;
 import org.apache.samza.config.Config;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.container.grouper.stream.SystemStreamPartitionGrouper;
 import org.apache.samza.container.grouper.stream.SystemStreamPartitionGrouperFactory;
+import org.apache.samza.job.model.ContainerModel;
+import org.apache.samza.job.model.TaskModel;
 import org.apache.samza.system.SystemStreamPartition;
 
 public class MockSSPGrouperFactory implements SystemStreamPartitionGrouperFactory {
-
   @Override
   public SystemStreamPartitionGrouper getSystemStreamPartitionGrouper(Config config) {
-    return new MockSSPGrouper();
+    return new MockSSPGrouper(config);
   }
 }
 
 class MockSSPGrouper implements SystemStreamPartitionGrouper {
+  private final Config config;
+
+  public MockSSPGrouper(Config config) {
+    this.config = config;
+  }
+
   @Override
   public Map<TaskName, Set<SystemStreamPartition>> group(Set<SystemStreamPartition> systemStreamPartitions) {
-    Map<TaskName, Set<SystemStreamPartition>> taskModels = new HashMap<>();
-    taskModels.put(new TaskName("Source 0"), ImmutableSet.of(new SystemStreamPartition("kafka", "pageview-filter-input", new Partition(0))));
-    taskModels.put(new TaskName("Sink 0"), ImmutableSet.of(new SystemStreamPartition("p2p", "pageview-filter-1-partition_by-p2p", new Partition(0))));
-
-    taskModels.put(new TaskName("Source 1"), ImmutableSet.of(new SystemStreamPartition("kafka", "pageview-filter-input", new Partition(1))));
-    taskModels.put(new TaskName("Sink 1"), ImmutableSet.of(new SystemStreamPartition("p2p", "pageview-filter-1-partition_by-p2p", new Partition(1))));
-    return taskModels;
+    Map<TaskName, Set<SystemStreamPartition>> tasks = new HashMap<>();
+    Map<String, ContainerModel> containers = new JobInfo(config).getJobModel().getContainers();
+    for (Map.Entry<String, ContainerModel> containerModel : containers.entrySet()) {
+      for (Map.Entry<TaskName, TaskModel> taskModel : containerModel.getValue().getTasks().entrySet()) {
+        tasks.put(taskModel.getKey(), taskModel.getValue().getSystemStreamPartitions());
+      }
+    }
+    return tasks;
   }
 }

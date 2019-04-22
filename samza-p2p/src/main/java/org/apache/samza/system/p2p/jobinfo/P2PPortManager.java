@@ -69,7 +69,7 @@ public class P2PPortManager {
    * @param port  the port
    */
   public void writeConsumerPort(String containerId, Integer port) {
-    LOG.info("Writing P2P Port: {} for Consumer: {}", port, containerId);
+    LOG.info("Writing p2p port: {} for container: {}", port, containerId);
     metadataStore.put(containerId, valueSerde.toBytes(String.valueOf(port)));
   }
 

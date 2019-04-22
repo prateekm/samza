@@ -26,20 +26,20 @@ import org.apache.samza.system.SystemConsumer;
 import org.apache.samza.system.SystemFactory;
 import org.apache.samza.system.SystemProducer;
 import org.apache.samza.system.p2p.checkpoint.KCMWatcherFactory;
-import org.apache.samza.system.p2p.jobinfo.JobModelJobInfo;
+import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.apache.samza.system.p2p.pq.RocksDBPersistentQueueFactory;
 
 public class P2PSystemFactory implements SystemFactory {
   @Override
   public SystemConsumer getConsumer(String systemName, Config config, MetricsRegistry registry) {
-    String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); /* TODO only works in YARN */
+    String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); // TODO only works in YARN
     return new P2PSystemConsumer(Integer.valueOf(containerId), config, registry, System::currentTimeMillis);
   }
 
   @Override
   public SystemProducer getProducer(String systemName, Config config, MetricsRegistry registry) {
-    String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); /* TODO only works in YARN */
-    return new P2PSystemProducer(systemName, Integer.valueOf(containerId), new RocksDBPersistentQueueFactory(), new KCMWatcherFactory(), config, registry, new JobModelJobInfo(config));
+    String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); // TODO only works in YARN
+    return new P2PSystemProducer(systemName, Integer.valueOf(containerId), new RocksDBPersistentQueueFactory(), new KCMWatcherFactory(), config, registry, new JobInfo(config));
   }
 
   @Override
