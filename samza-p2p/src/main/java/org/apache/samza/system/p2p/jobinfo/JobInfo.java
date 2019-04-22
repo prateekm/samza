@@ -92,7 +92,7 @@ public class JobInfo {
   }
 
   public int getConsumerFor(int partition) {
-    return partition / getNumContainers(); // TODO do reverse lookup on jobmodel
+    return partition % getNumContainers(); // TODO do reverse lookup on jobmodel
   }
 
   @VisibleForTesting // used in tests only
