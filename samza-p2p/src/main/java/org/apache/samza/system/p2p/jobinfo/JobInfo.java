@@ -99,7 +99,7 @@ public class JobInfo {
 
   public int getPartitionFor(byte[] key) {
     // return Util.toPositive(Util.murmur2(key)) % getNumPartitions();
-    return ByteBuffer.wrap(key).getInt() % getNumPartitions();
+    return ByteBuffer.wrap(key).getInt() % getNumPartitions(); // TODO BLOCKER REVERT
   }
 
   public int getConsumerFor(int partition) {
