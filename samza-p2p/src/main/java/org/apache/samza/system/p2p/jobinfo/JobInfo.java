@@ -39,7 +39,6 @@ import org.apache.samza.job.model.JobModel;
 import org.apache.samza.job.model.TaskModel;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.Constants;
-import org.apache.samza.system.p2p.Util;
 
 public class JobInfo {
   private final Config config;
