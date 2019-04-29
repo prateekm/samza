@@ -21,6 +21,7 @@ package org.apache.samza.system.p2p.jobinfo;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -59,11 +60,20 @@ public class JobInfo {
     int numContainers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
     int numInputPartitions = config.getInt(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY);
 
-    String[] taskInputs = config.get(TaskConfig.INPUT_STREAMS()).split(","); // TODO assumes a single input and p2p stream
-    String inputSystemName = taskInputs[0].split("\\.")[0];
-    String inputStreamName = taskInputs[0].split("\\.")[1];
-    String p2pSystemName = taskInputs[1].split("\\.")[0];
-    String p2pStreamName = taskInputs[1].split("\\.")[1];
+    String[] taskInputs = config.get(TaskConfig.INPUT_STREAMS()).split(",");
+    String p2pSystemStream;
+    String inputSystemStream;
+    if (taskInputs[0].startsWith(Constants.P2P_SYSTEM_NAME)) {
+      p2pSystemStream = taskInputs[0];
+      inputSystemStream = taskInputs[1];
+    } else {
+      inputSystemStream = taskInputs[0];
+      p2pSystemStream = taskInputs[1];
+    }
+    String inputSystemName = inputSystemStream.split("\\.")[0];
+    String inputStreamName = inputSystemStream.split("\\.")[1];
+    String p2pSystemName = p2pSystemStream.split("\\.")[0];
+    String p2pStreamName = p2pSystemStream.split("\\.")[1];
 
     Map<String, ContainerModel> containerModels = new HashMap<>();
     int taskNumber = 0;
@@ -88,7 +98,8 @@ public class JobInfo {
   }
 
   public int getPartitionFor(byte[] key) {
-    return Util.toPositive(Util.murmur2(key)) % getNumPartitions();
+    // return Util.toPositive(Util.murmur2(key)) % getNumPartitions();
+    return ByteBuffer.wrap(key).getInt() % getNumPartitions();
   }
 
   public int getConsumerFor(int partition) {
