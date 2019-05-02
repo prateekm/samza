@@ -33,14 +33,10 @@ import org.apache.samza.Partition;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.JobConfig;
-import org.apache.samza.coordinator.metadatastore.CoordinatorStreamStore;
-import org.apache.samza.coordinator.metadatastore.NamespaceAwareCoordinatorStreamStore;
-import org.apache.samza.coordinator.stream.messages.SetP2PConsumerPortMapping;
 import org.apache.samza.metrics.MetricsRegistry;
-import org.apache.samza.metrics.MetricsRegistryMap;
 import org.apache.samza.system.IncomingMessageEnvelope;
 import org.apache.samza.system.SystemStreamPartition;
-import org.apache.samza.system.p2p.jobinfo.P2PPortManager;
+import org.apache.samza.system.p2p.jobinfo.ConsumerLocalityManager;
 import org.apache.samza.util.BlockingEnvelopeMap;
 import org.apache.samza.util.Clock;
 import org.slf4j.Logger;
@@ -54,7 +50,8 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
   private final AtomicLongArray producerOffsets;
   private final Thread acceptorThread;
 
-  public P2PSystemConsumer(int consumerId, Config config, MetricsRegistry metricsRegistry, Clock clock) {
+  public P2PSystemConsumer(int consumerId, Config config, MetricsRegistry metricsRegistry, Clock clock,
+      ConsumerLocalityManager consumerLocalityManager) {
     super(metricsRegistry, clock);
     this.consumerId = consumerId;
     this.connectionHandlers = new LinkedHashSet<>();
@@ -66,14 +63,10 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
           serverSocket.bind(null);
           int consumerPort = serverSocket.getLocalPort();
 
-          CoordinatorStreamStore coordinatorStreamStore = new CoordinatorStreamStore(config, new MetricsRegistryMap());
-          coordinatorStreamStore.init();
-          P2PPortManager portManager = new P2PPortManager(
-              new NamespaceAwareCoordinatorStreamStore(coordinatorStreamStore, SetP2PConsumerPortMapping.TYPE));
           LOGGER.info("Writing Port: {} for Consumer: {}", consumerPort, consumerId);
-          portManager.writeConsumerPort(String.valueOf(consumerId), consumerPort);
-          coordinatorStreamStore.close();
-
+          consumerLocalityManager.start();
+          consumerLocalityManager.writeConsumerPort(String.valueOf(consumerId), consumerPort);
+          consumerLocalityManager.stop();
           while (!Thread.currentThread().isInterrupted()) {
             Socket socket = serverSocket.accept();
             connectionHandler = new ConsumerConnectionHandler(consumerId, socket, producerOffsets, messageSink);

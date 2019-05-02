@@ -48,14 +48,12 @@ public class P2PPortManager {
    *
    * @return the map of containerId: port
    */
-  public Map<String, Map<String, String>> readConsumerPorts() {
-    Map<String, Map<String, String>> allMappings = new HashMap<>();
+  public Map<String, String> readConsumerPorts() {
+    Map<String, String> allMappings = new HashMap<>();
     metadataStore.all().forEach((containerId, valueBytes) -> {
         if (valueBytes != null) {
           String port = valueSerde.fromBytes(valueBytes);
-          Map<String, String> values = new HashMap<>();
-          values.put(SetP2PConsumerPortMapping.PORT_KEY, port);
-          allMappings.put(containerId, values);
+          allMappings.put(containerId, port);
         }
       });
 

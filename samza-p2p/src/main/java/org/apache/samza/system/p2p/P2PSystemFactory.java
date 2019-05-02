@@ -27,19 +27,24 @@ import org.apache.samza.system.SystemFactory;
 import org.apache.samza.system.SystemProducer;
 import org.apache.samza.system.p2p.checkpoint.KCMWatcherFactory;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
+import org.apache.samza.system.p2p.jobinfo.MetadataStoreConsumerLocalityManager;
 import org.apache.samza.system.p2p.pq.RocksDBPersistentQueueFactory;
 
 public class P2PSystemFactory implements SystemFactory {
   @Override
   public SystemConsumer getConsumer(String systemName, Config config, MetricsRegistry registry) {
     String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); // TODO only works in YARN
-    return new P2PSystemConsumer(Integer.valueOf(containerId), config, registry, System::currentTimeMillis);
+    return new P2PSystemConsumer(Integer.valueOf(containerId), config, registry, System::currentTimeMillis,
+        new MetadataStoreConsumerLocalityManager(config, registry));
   }
 
   @Override
   public SystemProducer getProducer(String systemName, Config config, MetricsRegistry registry) {
     String containerId = System.getenv(ShellCommandConfig.ENV_CONTAINER_ID()); // TODO only works in YARN
-    return new P2PSystemProducer(systemName, Integer.valueOf(containerId), new RocksDBPersistentQueueFactory(), new KCMWatcherFactory(), config, registry, new JobInfo(config));
+    return new P2PSystemProducer(systemName, Integer.valueOf(containerId),
+        new RocksDBPersistentQueueFactory(), new KCMWatcherFactory(),
+        new MetadataStoreConsumerLocalityManager(config, registry),
+        config, registry, new JobInfo(config));
   }
 
   @Override

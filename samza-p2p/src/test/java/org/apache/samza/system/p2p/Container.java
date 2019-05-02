@@ -25,10 +25,12 @@ import java.util.Set;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.JobConfig;
 import org.apache.samza.config.MapConfig;
+import org.apache.samza.config.TaskConfig;
 import org.apache.samza.metrics.MetricsRegistry;
 import org.apache.samza.system.IncomingMessageEnvelope;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.checkpoint.FileCheckpointWatcherFactory;
+import org.apache.samza.system.p2p.jobinfo.FixedConsumerLocalityManager;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.apache.samza.system.p2p.pq.RocksDBPersistentQueueFactory;
 import org.apache.samza.util.NoOpMetricsRegistry;
@@ -63,14 +65,16 @@ public class Container {
     Map<String, String> configMap = new HashMap<>();
     configMap.put(JobConfig.JOB_CONTAINER_COUNT(), String.valueOf(Constants.Test.NUM_CONTAINERS));
     configMap.put(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY, String.valueOf(Constants.Test.NUM_PARTITIONS));
+    configMap.put(TaskConfig.INPUT_STREAMS(), "input.input,p2p.output");
     MapConfig config = new MapConfig(configMap);
     MetricsRegistry metricsRegistry = new NoOpMetricsRegistry();
 
     JobInfo jobInfo = new JobInfo(config);
 
     P2PSystemProducer producer = new P2PSystemProducer(Constants.P2P_SYSTEM_NAME, containerId, new RocksDBPersistentQueueFactory(),
-        new FileCheckpointWatcherFactory(), config, metricsRegistry, jobInfo);
-    P2PSystemConsumer consumer = new P2PSystemConsumer(containerId, config, new NoOpMetricsRegistry(), System::currentTimeMillis);
+        new FileCheckpointWatcherFactory(), new FixedConsumerLocalityManager(), config, metricsRegistry, jobInfo);
+    P2PSystemConsumer consumer = new P2PSystemConsumer(containerId, config, new NoOpMetricsRegistry(),
+        System::currentTimeMillis, new FixedConsumerLocalityManager());
     Container container = new Container(containerId, config, producer, consumer, jobInfo);
     container.start();
   }
@@ -86,7 +90,7 @@ public class Container {
     jobInfo.getTasksFor(containerId).forEach(taskName -> {
         String taskNameStr = taskName.getTaskName();
         String[] taskNameParts = taskNameStr.split("\\s");
-        String partitionId = taskNameParts[2];
+        String partitionId = taskNameParts[1];
         if (taskNameParts[0].startsWith("Source")) {
           sourceTasks.put(Integer.valueOf(partitionId), new SourceTask(taskNameStr, config, producer, jobInfo));
         } else {

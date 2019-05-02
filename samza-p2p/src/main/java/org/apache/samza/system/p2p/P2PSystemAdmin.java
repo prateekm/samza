@@ -39,17 +39,6 @@ public class P2PSystemAdmin implements SystemAdmin {
   }
 
   @Override
-  public void start() { }
-
-  @Override
-  public void stop() { }
-
-  @Override
-  public Map<SystemStreamPartition, String> getOffsetsAfter(Map<SystemStreamPartition, String> offsets) {
-    return offsets;
-  }
-
-  @Override
   public Map<String, SystemStreamMetadata> getSystemStreamMetadata(Set<String> streamNames) {
     HashMap<String, SystemStreamMetadata> metadata = new HashMap<>();
     HashMap<Partition, SystemStreamMetadata.SystemStreamPartitionMetadata> partitionMetadata = new HashMap<>();
@@ -61,12 +50,27 @@ public class P2PSystemAdmin implements SystemAdmin {
     return metadata;
   }
 
+  //======================================== Default / No-op implementations ========================================//
+
   @Override
-  public Integer offsetComparator(String offset1, String offset2) {
-    return 0; // TODO implement?
+  public void start() {
+
   }
 
-  //======================================== Default / No-op implementations ========================================//
+  @Override
+  public void stop() {
+
+  }
+
+  @Override
+  public Map<SystemStreamPartition, String> getOffsetsAfter(Map<SystemStreamPartition, String> offsets) {
+    return offsets;
+  }
+
+  @Override
+  public Integer offsetComparator(String offset1, String offset2) {
+    return 0;
+  }
 
   @Override
   public boolean createStream(StreamSpec streamSpec) {

@@ -33,6 +33,7 @@ public class Constants {
   public static final int PRODUCER_CH_CONNECTION_TIMEOUT = 1000;
   public static final int PRODUCER_CH_SEND_INTERVAL = 100;
   public static final int PRODUCER_CHECKPOINT_WATCHER_INTERVAL = 1000;
+  public static final int PRODUCER_FLUSH_SLEEP_MS = 1000;
 
   public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
   public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
@@ -63,11 +64,17 @@ public class Constants {
     public static final int TASK_FLUSH_INTERVAL = 1000;
     public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 
+    private static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/state";
 
     private static final String CHECKPOINTS_BASE_PATH = "checkpoints";
+    private static final String CONSUMER_PORTS_BASE_PATH = "ports";
 
     public static Path getTaskCheckpointPath(String taskName) {
-      return Paths.get(STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + CHECKPOINTS_BASE_PATH + "/task/" + taskName);
+      return Paths.get(SHARED_STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + CHECKPOINTS_BASE_PATH + "/task/" + taskName);
+    }
+
+    public static Path getConsumerPortPath(String consumerId) {
+      return Paths.get(SHARED_STATE_BASE_PATH + "/" + EXECUTION_ID + "/" + CONSUMER_PORTS_BASE_PATH + "/consumer/" + consumerId + "/PORT");
     }
   }
 }

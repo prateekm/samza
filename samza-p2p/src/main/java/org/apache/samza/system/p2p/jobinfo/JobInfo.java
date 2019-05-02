@@ -42,13 +42,15 @@ import org.apache.samza.system.p2p.Constants;
 
 public class JobInfo {
   private final Config config;
+  private final Map<Integer, Integer> taskToContainerMapping;
+  private final Map<Integer, Integer> p2pSSPToTaskMapping;
+  private final JobModel jobModel;
 
   public JobInfo(Config config) {
     this.config = config;
-  }
-
-  public int getNumContainers() {
-    return config.getInt(JobConfig.JOB_CONTAINER_COUNT());
+    this.taskToContainerMapping = new HashMap<>();
+    this.p2pSSPToTaskMapping = new HashMap<>();
+    this.jobModel = createJobModel(); // also populates taskToContainerMapping and p2pSSPToTaskMapping
   }
 
   public int getNumPartitions() {
@@ -56,6 +58,10 @@ public class JobInfo {
   }
 
   public JobModel getJobModel() {
+    return jobModel;
+  }
+
+  private JobModel createJobModel() {
     int numContainers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
     int numInputPartitions = config.getInt(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY);
 
@@ -82,6 +88,8 @@ public class JobInfo {
       for (int j = 0; j < numSourceTasksPerContainer; j++) {
         taskModels.put(new TaskName("Source " + taskNumber), new TaskModel(new TaskName("Source " + taskNumber), ImmutableSet.of(new SystemStreamPartition(inputSystemName, inputStreamName, new Partition(taskNumber))), new Partition(taskNumber)));
         taskModels.put(new TaskName("Sink " + taskNumber), new TaskModel(new TaskName("Sink " + taskNumber), ImmutableSet.of(new SystemStreamPartition(p2pSystemName, p2pStreamName, new Partition(taskNumber))), new Partition(taskNumber)));
+        p2pSSPToTaskMapping.put(taskNumber, taskNumber); // TODO assumes p2p ssp num == task num
+        taskToContainerMapping.put(taskNumber, containerId);
         taskNumber++;
       }
       containerModels.put(String.valueOf(containerId), new ContainerModel(String.valueOf(containerId), taskModels));
@@ -102,7 +110,7 @@ public class JobInfo {
   }
 
   public int getConsumerFor(int partition) {
-    return partition % getNumContainers(); // TODO do reverse lookup on jobmodel
+    return taskToContainerMapping.get(p2pSSPToTaskMapping.get(partition));
   }
 
   @VisibleForTesting // used in tests only

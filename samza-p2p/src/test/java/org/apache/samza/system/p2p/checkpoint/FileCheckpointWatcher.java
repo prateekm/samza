@@ -47,7 +47,7 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
                   Util.parseOffsets(Util.readFileString(Constants.Test.getTaskCheckpointPath(taskName.getTaskName())));
               long producerOffset = offsets[producerId];
               Integer taskId = Integer.valueOf(taskName.getTaskName().split("\\s")[1]);
-              LOGGER.info("Setting checkpointed offset for task: {} to: {}", taskId, producerOffset);
+              LOGGER.info("Setting checkpointed offset for task: {} to: {}", taskName, producerOffset);
               lastTaskCheckpointedOffsets.put(taskId, producerOffset);
             }
             lastTaskCheckpointedOffsets.put(-1, 1L); // TODO mark as initialized

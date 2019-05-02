@@ -18,6 +18,7 @@
  */
 package org.apache.samza.system.p2p;
 
+import java.nio.ByteBuffer;
 import java.util.Random;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.TaskConfig;
@@ -44,15 +45,15 @@ public class SourceTask {
   SourceTask(String taskName, Config config, P2PSystemProducer producer, JobInfo jobInfo) {
     this.taskName = taskName;
     this.jobInfo = jobInfo;
-    String p2pStream = config.get(TaskConfig.INPUT_STREAMS().split(",")[1].split("\\.")[1]);
+    String p2pStream = config.get(TaskConfig.INPUT_STREAMS()).split(",")[1].split("\\.")[1];
     this.p2pSystemStream = new SystemStream(P2P_SYSTEM_NAME, p2pStream);
     this.produceThread = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
-          int keyLength = RANDOM.nextInt(Constants.Test.TASK_MAX_KEY_VALUE_LENGTH);
+          int keyLength = 4;
           int valueLength = RANDOM.nextInt(Constants.Test.TASK_MAX_KEY_VALUE_LENGTH);
           byte[] key = new byte[keyLength];
           byte[] value = new byte[valueLength];
-          RANDOM.nextBytes(key);
+          ByteBuffer.wrap(key).putInt(Math.abs(RANDOM.nextInt()));
           RANDOM.nextBytes(value);
           producer.send(taskName, new OutgoingMessageEnvelope(p2pSystemStream, key, value));
 
