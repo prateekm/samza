@@ -113,6 +113,10 @@ public class JobInfo {
     return taskToContainerMapping.get(p2pSSPToTaskMapping.get(partition));
   }
 
+  public int getTaskFor(int partition) {
+    return p2pSSPToTaskMapping.get(partition);
+  }
+
   @VisibleForTesting // used in tests only
   public List<TaskName> getTasksFor(int containerId) {
     ContainerModel containerModel = getJobModel().getContainers().get(String.valueOf(containerId));

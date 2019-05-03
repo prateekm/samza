@@ -26,6 +26,7 @@ import org.apache.samza.checkpoint.Checkpoint;
 import org.apache.samza.checkpoint.CheckpointManager;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.p2p.Constants;
+import org.apache.samza.system.p2p.ProducerOffset;
 import org.apache.samza.system.p2p.Util;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
@@ -44,7 +45,8 @@ public class KCMWatcher implements CheckpointWatcher {
     this.allTasks = allTasks;
   }
 
-  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo, ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets) {
+  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
+      ConcurrentMap<Integer, ProducerOffset> lastTaskCheckpointedOffsets) {
     allTasks.forEach(checkpointManager::register);
     checkpointManager.start();
     this.watcherThread = new Thread(() -> {
@@ -66,9 +68,11 @@ public class KCMWatcher implements CheckpointWatcher {
               .forEach(p -> {
                   LOGGER.trace("Setting Task: {} P2P SSP checkpointed offset to: {}", p.getLeft(), p.getRight());
                   Integer taskId = Integer.valueOf(p.getLeft().getTaskName().split("\\s")[1]);
-                  lastTaskCheckpointedOffsets.put(taskId, Util.parseOffsets(p.getRight())[producerId]);
-                });
-          lastTaskCheckpointedOffsets.put(-1, -1L); // TODO fix 'hasUpdatedOnce'
+                  ProducerOffset offset = new ProducerOffset(Util.parseOffsetVector(p.getRight())[producerId]);
+                  lastTaskCheckpointedOffsets.put(taskId, offset);
+                  });
+          lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY,
+              ProducerOffset.MIN_VALUE);
 
           try {
             Thread.sleep(Constants.PRODUCER_CHECKPOINT_WATCHER_INTERVAL);

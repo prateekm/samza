@@ -34,6 +34,7 @@ public class Constants {
   public static final int PRODUCER_CH_SEND_INTERVAL = 100;
   public static final int PRODUCER_CHECKPOINT_WATCHER_INTERVAL = 1000;
   public static final int PRODUCER_FLUSH_SLEEP_MS = 1000;
+  public static final int CHECKPOINTS_READ_ONCE_DUMMY_KEY = -1;
 
   public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
   public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
@@ -64,7 +65,7 @@ public class Constants {
     public static final int TASK_FLUSH_INTERVAL = 1000;
     public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 
-    private static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/state";
+    private static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/prateekm-samza/state";
 
     private static final String CHECKPOINTS_BASE_PATH = "checkpoints";
     private static final String CONSUMER_PORTS_BASE_PATH = "ports";

@@ -28,7 +28,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.apache.samza.Partition;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
@@ -47,7 +47,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
   private final int consumerId;
   private final Set<ConsumerConnectionHandler> connectionHandlers;
   private final MessageSink messageSink;
-  private final AtomicLongArray producerOffsets;
+  private final AtomicReferenceArray<ProducerOffset> producerOffsets;
   private final Thread acceptorThread;
 
   public P2PSystemConsumer(int consumerId, Config config, MetricsRegistry metricsRegistry, Clock clock,
@@ -56,7 +56,11 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     this.consumerId = consumerId;
     this.connectionHandlers = new LinkedHashSet<>();
     this.messageSink = new MessageSink(this);
-    this.producerOffsets = new AtomicLongArray(new long[config.getInt(JobConfig.JOB_CONTAINER_COUNT())]);
+    int numProducers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
+    this.producerOffsets = new AtomicReferenceArray<>(numProducers);
+    for (int i = 0; i < numProducers; i++) {
+      producerOffsets.set(i, ProducerOffset.MIN_VALUE);
+    }
     this.acceptorThread = new Thread(() -> {
         ConsumerConnectionHandler connectionHandler = null;
         try (ServerSocket serverSocket = new ServerSocket()) {
@@ -97,13 +101,14 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     private static final Logger LOGGER = LoggerFactory.getLogger(ConsumerConnectionHandler.class);
     private final int consumerId;
     private final Socket socket;
-    private final AtomicLongArray producerOffsets;
+    private final AtomicReferenceArray<ProducerOffset> producerOffsets;
     private final MessageSink messageSink;
 
     private int producerId;
     private volatile boolean shutdown = false;
 
-    ConsumerConnectionHandler(int consumerId, Socket socket, AtomicLongArray producerOffsets, MessageSink messageSink) {
+    ConsumerConnectionHandler(int consumerId, Socket socket,
+        AtomicReferenceArray<ProducerOffset> producerOffsets, MessageSink messageSink) {
       super("ConsumerConnectionHandler " + consumerId);
       this.consumerId = consumerId;
       this.socket = socket;
@@ -157,8 +162,10 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     }
 
     private void handleWrite(DataInputStream inputStream) throws IOException, InterruptedException {
-      long producerOffset = inputStream.readLong();
-      LOGGER.trace("Received write request from producer: {} with offset: {} in Consumer: {}", producerId, producerOffset, consumerId);
+      byte[] producerOffsetBytes = new byte[ProducerOffset.NUM_BYTES];
+      inputStream.readFully(producerOffsetBytes);
+      LOGGER.trace("Received write request from producer: {} with offset: {} in Consumer: {}",
+          producerId, new ProducerOffset(producerOffsetBytes), consumerId);
 
       int systemLength = inputStream.readInt();
       byte[] systemBytes = new byte[systemLength];
@@ -183,8 +190,8 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       byte[] messageBytes = new byte[messageLength];
       inputStream.readFully(messageBytes);
 
-      producerOffsets.set(producerId, producerOffset);
-      String sspOffset = producerOffsets.toString(); // TODO verify if approx / non atomic OK.
+      producerOffsets.set(producerId, new ProducerOffset(producerOffsetBytes));
+      String sspOffset = producerOffsets.toString(); // approx / non atomic OK.
       IncomingMessageEnvelope ime = new IncomingMessageEnvelope(ssp, sspOffset, keyBytes, messageBytes);
 
       try {

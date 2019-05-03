@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentMap;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.p2p.Constants;
+import org.apache.samza.system.p2p.ProducerOffset;
 import org.apache.samza.system.p2p.Util;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
@@ -35,7 +36,7 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
 
   @Override
   public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
-      ConcurrentMap<Integer, Long> lastTaskCheckpointedOffsets) {
+      ConcurrentMap<Integer, ProducerOffset> lastTaskCheckpointedOffsets) {
     this.watcher = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
           try {
@@ -43,17 +44,18 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
             for (TaskName taskName : tasks) {
               if (taskName.getTaskName().startsWith("Source")) continue; // only check checkpoints for sinks
 
-              long[] offsets =
-                  Util.parseOffsets(Util.readFileString(Constants.Test.getTaskCheckpointPath(taskName.getTaskName())));
-              long producerOffset = offsets[producerId];
+              String fileContents = Util.readFileString(Constants.Test.getTaskCheckpointPath(taskName.getTaskName()));
+              String producerOffset = Util.parseOffsetVector(fileContents)[producerId].trim();
               Integer taskId = Integer.valueOf(taskName.getTaskName().split("\\s")[1]);
               LOGGER.info("Setting checkpointed offset for task: {} to: {}", taskName, producerOffset);
-              lastTaskCheckpointedOffsets.put(taskId, producerOffset);
+              lastTaskCheckpointedOffsets.put(taskId, new ProducerOffset(producerOffset));
             }
-            lastTaskCheckpointedOffsets.put(-1, 1L); // TODO mark as initialized
+            lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY,
+                ProducerOffset.MIN_VALUE);
           } catch (NoSuchFileException e) {
-            LOGGER.info("No checkpoint file found.");
-            lastTaskCheckpointedOffsets.put(-1, 1L); // TODO mark as initialized
+            LOGGER.info("No checkpoint file found. Assuming first deploy.");
+            lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY,
+                ProducerOffset.MIN_VALUE);
           } catch (Exception e) {
             LOGGER.error("Error finding last checkpointed offsets for producerId: {}.", producerId, e);
           }

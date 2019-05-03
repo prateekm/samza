@@ -28,7 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class SinkTask {
-  private static final Logger LOGGER = LoggerFactory.getLogger(SourceTask.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(SinkTask.class);
   private final String taskName;
   private final JobInfo jobInfo;
   private final Thread commitThread;

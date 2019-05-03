@@ -19,7 +19,6 @@
 package org.apache.samza.system.p2p;
 
 import com.google.common.primitives.Ints;
-import com.google.common.primitives.Longs;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -28,14 +27,13 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.file.NoSuchFileException;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
@@ -68,9 +66,28 @@ public class P2PSystemProducer implements SystemProducer {
   private final Set<ProducerConnectionHandler> connectionHandlers;
   private final Set<String> senderTasks;
 
-  private final AtomicLong nextOffset = new AtomicLong(-1L);
-  private final ConcurrentHashMap<Integer, Long> lastTaskSentOffset = new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<Integer, Long> lastTaskCheckpointedOffset = new ConcurrentHashMap<>();
+  /**
+   * Offsets are minted as atomic counters on each producer. Each message send (from any task to any p2p ssp)
+   * increments the offset and sends it to the appropriate consumer. Hence the offsets from each producer in a SSP
+   * aren't contiguous. We assume that processing (checkpointing) within a ssp is in order. I.e., the fact that the
+   * (task for the) ssp checkpointed an offset i for the producer means that all messages sent from the producer
+   * to the ssp "before" that offset have been processed as well. Note that this applies only within a SSP - the fact
+   * that offset i appears in an ssp checkpoint does not mean that _all_ messages sent from the producer before
+   * that offset have been processed. Specifically, the producer may have sent older messages to a different partition,
+   * or a different stream altogether. However, two conditions still hold:
+   * 1. If the minimum producer offset across all downstream partitions _for a stream_ is i, then all messages sent
+   *    from the producer _to the stream_ with offset < i have been processed.
+   * 2. If the minimum producer offset across all downstream partitions _for all streams_ is i, then _all_ messages sent
+   *    from the producer with offset < i have been processed.
+   *
+   * When the producing task needs to checkpoint/flush, we need to ensure that every message it sent to every ssp until
+   * this point has been completely processed. This means that the min producer offset across all p2p ssps needs to be
+   * greater than the current next offset.  This alone however isn't sufficient because of persistence of checkpoints
+   * across restarts and how we set the nextStartingOffset at startup. More on that below.
+   */
+  private AtomicReference<ProducerOffset> nextOffset = null; // non final but should only be constructed in start
+  private final ConcurrentHashMap<Integer, ProducerOffset> lastTaskSentOffset = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Integer, ProducerOffset> lastTaskCheckpointedOffset = new ConcurrentHashMap<>(); // exists because we need both min (during flush) and max (during start) checkpointed offsets
 
   P2PSystemProducer(String systemName, int producerId, PersistentQueueFactory persistentQueueFactory,
       CheckpointWatcherFactory checkpointWatcherFactory, ConsumerLocalityManager consumerLocalityManager,
@@ -97,13 +114,60 @@ public class P2PSystemProducer implements SystemProducer {
     consumerLocalityManager.start();
     checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, lastTaskCheckpointedOffset);
 
-    while (lastTaskCheckpointedOffset.get(-1) == null) { // TODO FIX using dummy value for 'hasBeenUpdated'
+    /**
+     * The checkpointed offsets for a task at producer start may be:
+     * 0. null (only if error reading checkpoint)
+     * 1. empty (only for a new job)
+     * 2. present but stale (for a job with offset reset enabled
+     * 3. present and valid (for a regular job after regular shutdown)
+     *
+     * for 0, we should retry until we're able to read checkpoint.
+     * for 1, we can set nextOffset to the min value.
+     * for 2 & 3 we can set it to max of all checkpointed offsets
+     *
+     * Invariant: flushing immediately after start without sending any messages should always succeed
+     * since initial task last sent offset == null (it's created on first send), this works fine.
+     *
+     * Why track lastSentOffset per task? Let's say we only tracked the producer-wide last sent offset and compared
+     * that against the min checkpoint on commit. Consider the case when only 1 Task sent 1 message then flushed,
+     * then task last sent offset = nextOffset , but we'd still be waiting for min to progress in checkpoint which
+     * won't happen until messages are sent to each ssp. hence we need to track last sent offset per destination
+     * ssp instead of a single number or per source task.
+     *
+     * Why include time based epoch: Let's say we set the initial nextOffset to maxCheckpointedOffset.
+     * If consumer has messages buffered from previous producer but not checkpointed yet, we set nextOffset
+     * based on the max checkpointed offset and send message then flush and wait, consumer processes from buffer
+     * and checkpoints stale offset > min, we will unblock commit when we shouldn't. To prevent this, the producer
+     * offset needs to be monotonically increasing, even across restarts. Instead of relying on an external
+     * strongly consistent durable store, we use the current time millis at producer start as an 'approximate' but
+     * good enough monotonic counter. We make the assumption that the current time millis will not regress across
+     * producer restarts, even on different machines (i.e., clock skew < producer restart time, no machines with
+     * bad clocks). We can try to detect violations of this assumption and fix (by waiting more) or fail hard.
+     */
+    while (lastTaskCheckpointedOffset.get(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY) == null) {
       try {
         LOGGER.trace("Waiting for last task checkpoint offset to be updated.");
         Thread.sleep(1000);
       } catch (InterruptedException e) { }
     }
-    nextOffset.set(getMaxCheckpointedOffset() + 1); // 0 if no checkpoint
+
+    ProducerOffset maxCheckpointedOffset = getMaxCheckpointedOffset();
+    long prevEpoch = maxCheckpointedOffset.getEpoch();
+    // additional validation to ensure that current epoch is greater than last checkpointed epoch.
+    // it's still possible (although unlikely) that the epoch for previously delivered in-memory messages
+    // on the consumer is higher (e.g. due to a bad clock).
+    // TODO maybe we can detect this on the consumer and reject writes?
+    long currentEpoch = System.currentTimeMillis();
+    while (currentEpoch < prevEpoch + 1) {
+      LOGGER.error("Current producer epoch: {} is less than the previous producer epoch: {}", currentEpoch, prevEpoch);
+      try {
+        Thread.sleep(prevEpoch - currentEpoch);
+        currentEpoch = System.currentTimeMillis();
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    this.nextOffset = new AtomicReference<>(new ProducerOffset(currentEpoch, 0));
 
     try {
       for (int consumerId = 0; consumerId < config.getInt(JobConfig.JOB_CONTAINER_COUNT()); consumerId++) {
@@ -154,20 +218,57 @@ public class P2PSystemProducer implements SystemProducer {
         .put(Ints.toByteArray(key.length)).put(key)
         .put(Ints.toByteArray(message.length)).put(message);
 
-    long offset = this.nextOffset.incrementAndGet();
-    try {
-      senderTasks.add(taskName);
-      int destinationConsumerId = jobInfo.getConsumerFor(partition);
-      int destinationTaskId = partition; // TODO FIX this assumes num p2p partition = num task
+    senderTasks.add(taskName);
+    String destinationConsumerId = String.valueOf(jobInfo.getConsumerFor(partition));
+    int destinationTaskId = jobInfo.getTaskFor(partition);
+
+    /**
+     * There are (at least) two concurrency issues we need to handle here (if job.container.thread.pool.size > 1
+     * or if task.max.concurrency > 1 or multiple concurrent sends from within a process() call)
+     *
+     * 1. For the lastTaskSentOffset update, we need to ensure that the value doesn't regress since we allow commit
+     * to progress as soon as the last sent offset <= min checkpointed offset. Consider the following order of events:
+     *    Task A gets nextOffset 1 for a message intended for Task i
+     *    Task B gets nextOffset 2 for a message intended for Task i
+     *    Task B sets lastTaskSentOffset for Task i to 2
+     *    Task A overwrites lastTaskSentOffset for Task i to 1
+     *    Task A and B send the message
+     *    Task A and B commit, and wait for last sent offset <= min checkpointed offset for Task i
+     * The commit make progress as soon as message 1 is checkpointed by Task i instead of waiting for message 2.
+     * This can happen if job.container.thread.pool.size > 1
+     *
+     * 2. For the producer append, we need to ensure that appended offset does not regress. Consider the following
+     * order of events:
+     *    Task A gets nextOffset 1 for a message intended for Task i
+     *    Task B (or Task A with task.max.concurrency > 1) gets nextOffset 2 for a message intended for Task i
+     *    Task B writes message to queue
+     *    ProducerConnectionHandler for Task i iterates over queue from last sent to current end message and resets last sent = current end.
+     *    Task A writes message to the queue.
+     * ProducerConnectionHandler is going to ignore/lose Task A's message.
+     *
+     * For now, we synchronize the whole sequence. If this becomes a bottleneck, there might be ways to optimize this. E.g.,
+     * For 1. Only set lastSentOffset if larger than current
+     * For 2. Wrap getNextOffset in something that can track low watermark (safe offset to commit). Task send can
+     * "lease" an offset, make the store write, return the offset. ProducerConnectionHandler can send only up to
+     * low watermark instead of store end.
+     * For 2. Use a reader writer lock to allow concurrent appends (reader) from Tasks but exclusive scans (writer)
+     * from ProducerConnectionHandler. Less desirable since we're locking while sending messages synchronously over
+     * network or buffering several messages in memory.
+     */
+    synchronized (this) {
+      ProducerOffset offset = this.nextOffset.get();
+      // not really necessary because of synchronized, but leaving as-is for now
+      while (!this.nextOffset.compareAndSet(offset, offset.nextOffset())) {
+        offset = this.nextOffset.get();
+      }
       lastTaskSentOffset.put(destinationTaskId, offset);
+
       LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
-      // TODO can result in out of order appends (offset 2 append before offset 1).
-      // Move offset to pq? But offset is per producer, not per consumer
-      // TODO: require pq append thread safe or synchronize access?
-      persistentQueues.get(String.valueOf(destinationConsumerId))
-          .append(Longs.toByteArray(offset), buffer.array());
-    } catch (Exception e) {
-      throw new SamzaException(String.format("Error appending data for offset: %d to the queue.", offset), e);
+      try {
+        persistentQueues.get(destinationConsumerId).append(offset, buffer.array());
+      } catch (Exception e) {
+        throw new SamzaException(String.format("Error appending data for offset: %s to the queue.", offset), e);
+      }
     }
   }
 
@@ -187,18 +288,18 @@ public class P2PSystemProducer implements SystemProducer {
       }
     }
 
-    // TODO verify handle producer offset regression on start?
-    Map<Integer, Long> currentLastTaskSentOffsets = new HashMap<>(lastTaskSentOffset);
+    Map<Integer, ProducerOffset> currentLastTaskSentOffsets = new HashMap<>(lastTaskSentOffset);
     boolean isUpToDate = false;
     while (!isUpToDate) {
       isUpToDate = true;
-      for (Map.Entry<Integer, Long> e: lastTaskCheckpointedOffset.entrySet()) {
+      for (Map.Entry<Integer, ProducerOffset> e: lastTaskCheckpointedOffset.entrySet()) {
         Integer taskId = e.getKey();
-        Long lastTaskCheckpointedOffset = e.getValue();
-        Long lastTaskSentOffset = currentLastTaskSentOffsets.get(taskId);
-        if (lastTaskSentOffset != null && lastTaskSentOffset > lastTaskCheckpointedOffset + 1) {
-          LOGGER.trace("Blocking flush since task: Sink {} lastCheckpointedOffset + 1: {} is less than lastSentOffset: {}",
-              taskId, lastTaskCheckpointedOffset + 1, lastTaskSentOffset);
+        ProducerOffset lastTaskCheckpointedOffset = e.getValue();
+        ProducerOffset lastTaskSentOffset = currentLastTaskSentOffsets.get(taskId);
+        if (lastTaskSentOffset != null
+            && lastTaskSentOffset.compareTo(lastTaskCheckpointedOffset) > 0) {
+          LOGGER.trace("Blocking flush since task: Sink {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
+              taskId, lastTaskCheckpointedOffset, lastTaskSentOffset);
           isUpToDate = false;
           break;
         }
@@ -211,12 +312,12 @@ public class P2PSystemProducer implements SystemProducer {
       }
     }
 
-    long currentMinCheckpointedOffset = getMinCheckpointedOffset(); // TODO save + use next offset at beginning?
+    ProducerOffset currentMinCheckpointedOffset = getMinCheckpointedOffset();
     LOGGER.info("Deleting data up to offset: {}", currentMinCheckpointedOffset);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
       try {
-        entry.getValue().deleteUpto(Longs.toByteArray(currentMinCheckpointedOffset));
+        entry.getValue().deleteUpto(currentMinCheckpointedOffset);
       } catch (IOException e) {
         throw new SamzaException(
             String.format("Error cleaning up persistent queue: %s for data up to committed offset: %s.",
@@ -227,13 +328,16 @@ public class P2PSystemProducer implements SystemProducer {
     LOGGER.trace("Flush completed for task: {}", taskName);
   }
 
-  private Long getMaxCheckpointedOffset() {
-    return lastTaskCheckpointedOffset.values().stream().max(Comparator.comparingLong(l -> (Long) l)).get();
+  private ProducerOffset getMaxCheckpointedOffset() {
+    // guaranteed to contain at least the dummy value (hasBeenUpdatedOnce)
+    return lastTaskCheckpointedOffset.values().stream().max(ProducerOffset::compareTo).get();
   }
 
-  private Long getMinCheckpointedOffset() {
-    return lastTaskCheckpointedOffset.values().stream().filter(v -> v != -1L)
-        .min(Comparator.comparingLong(l -> (Long) l)).orElse(-1L);
+  private ProducerOffset getMinCheckpointedOffset() {
+    return lastTaskCheckpointedOffset.values().stream() // first filter the dummy value (hasBeenUpdatedOnce)
+        .filter(v -> v.compareTo(ProducerOffset.MIN_VALUE) > 0)
+        .min(ProducerOffset::compareTo)
+        .orElse(ProducerOffset.MIN_VALUE);
   }
 
   private static class ProducerConnectionHandler extends Thread {
@@ -296,12 +400,12 @@ public class P2PSystemProducer implements SystemProducer {
 
       sync(outputStream);
 
-      byte[] startingOffset = null;
+      ProducerOffset startingOffset = null;
       while (!shutdown && !Thread.currentThread().isInterrupted()) {
-        byte[] lastSentOffset = sendSince(startingOffset, outputStream);
+        ProducerOffset lastSentOffset = sendSince(startingOffset, outputStream);
         if (lastSentOffset != startingOffset) {
-          startingOffset = Longs.toByteArray(Longs.fromByteArray(lastSentOffset) + 1);
-          LOGGER.trace("Next starting offset: {} for Producer: {}", Longs.fromByteArray(startingOffset), producerId);
+          startingOffset = lastSentOffset.nextOffset();
+          LOGGER.trace("Next starting offset: {} for Producer: {}", startingOffset, producerId);
         }
         Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
       }
@@ -322,8 +426,8 @@ public class P2PSystemProducer implements SystemProducer {
      * If {@code startingOffset} is null, sends from the beginning.
      * @return the last offset sent to consumer, which may be null.
      */
-    private byte[] sendSince(byte[] startingOffset, OutputStream outputStream) throws IOException {
-      byte[] lastSentOffset = startingOffset;
+    private ProducerOffset sendSince(ProducerOffset startingOffset, OutputStream outputStream) throws IOException {
+      ProducerOffset lastSentOffset = startingOffset;
       PersistentQueueIterator iterator = persistentQueue.readFrom(startingOffset);
 
       while (iterator.hasNext()) {
@@ -332,11 +436,11 @@ public class P2PSystemProducer implements SystemProducer {
         byte[] payload = entry.getValue();
 
         LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
-            Longs.fromByteArray(storedOffset), consumerId, producerId);
+            new ProducerOffset(storedOffset), consumerId, producerId);
         outputStream.write(Constants.OPCODE_WRITE);
         outputStream.write(storedOffset);
         outputStream.write(payload);
-        lastSentOffset = storedOffset;
+        lastSentOffset = new ProducerOffset(storedOffset);
       }
 
       outputStream.flush();

@@ -134,15 +134,10 @@ public class Util {
     return h;
   }
 
-  public static long[] parseOffsets(String s) {
+  public static String[] parseOffsetVector(String s) {
     if (s == null || s.length() < 2) {
       throw new IllegalArgumentException(String.format("Invalid offset vector: %s", s));
     }
-    String[] parts = s.substring(1, s.length() - 1).split(",");
-    long[] offsets = new long[parts.length];
-    for (int i = 0; i < parts.length; i++) {
-      offsets[i] = Long.valueOf(parts[i].trim());
-    }
-    return offsets;
+    return s.substring(1, s.length() - 1).split(",");
   }
 }

@@ -18,14 +18,13 @@
  */
 package org.apache.samza.system.p2p.pq;
 
-import com.google.common.primitives.Longs;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import org.apache.samza.config.Config;
 import org.apache.samza.metrics.MetricsRegistry;
 import org.apache.samza.system.p2p.Constants;
+import org.apache.samza.system.p2p.ProducerOffset;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
@@ -45,9 +44,9 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   }
 
   @Override
-  public void append(byte[] id, byte[] message) throws IOException {
+  public void append(ProducerOffset id, byte[] message) throws IOException {
     try {
-      db.put(id, message);
+      db.put(id.getBytes(), message);
     } catch (RocksDBException e) {
       throw new IOException(String.format("Error appending data to db for queue: %s", name), e);
     }
@@ -63,10 +62,10 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   }
 
   @Override
-  public PersistentQueueIterator readFrom(byte[] startingId) {
+  public PersistentQueueIterator readFrom(ProducerOffset startingId) {
     RocksIterator rocksIterator = db.newIterator();
     if (startingId != null) {
-      rocksIterator.seek(startingId);
+      rocksIterator.seek(startingId.getBytes());
     } else {
       rocksIterator.seekToFirst();
     }
@@ -74,19 +73,19 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   }
 
   @Override
-  public void deleteUpto(byte[] endId) throws IOException {
-    // TODO issue with concurrent access / non-existent endId?
+  public void deleteUpto(ProducerOffset endId) throws IOException {
+    // TODO issues with concurrent access / non-existent endId?
     try {
       RocksIterator iterator = db.newIterator();
       iterator.seekToFirst();
       if (iterator.isValid()) {
-        byte[] startingId = iterator.key();
+        ProducerOffset startingId = new ProducerOffset(iterator.key());
         iterator.close();
-        long startingIdLong = Longs.fromByteArray(startingId); // TODO remove long assumption
-        long endIdLong = Longs.fromByteArray(endId);
-        if (endIdLong > startingIdLong) {
+        if (startingId.compareTo(endId) < 0) {
           LOGGER.trace("Deleting data from startingId: {} to endId: {}", startingId, endId);
-          db.deleteRange(startingId, endId);
+          db.deleteRange(startingId.getBytes(), endId.getBytes());
+        } else {
+          LOGGER.trace("Unexpectedly found startingId: {} to be greater than endId: {}", startingId, endId);
         }
       } else {
         iterator.close();
