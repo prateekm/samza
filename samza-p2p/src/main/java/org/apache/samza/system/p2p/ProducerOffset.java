@@ -43,7 +43,7 @@ public class ProducerOffset implements Comparable<ProducerOffset> {
     String[] parts = offset.split("-");
     long[] longs = new long[parts.length];
     for (int i = 0; i < parts.length; i++) {
-      longs[i] = Long.valueOf(parts[i]);
+      longs[i] = Long.valueOf(parts[i].trim());
     }
     this.longs = longs;
     this.bytes = toBytes(longs);

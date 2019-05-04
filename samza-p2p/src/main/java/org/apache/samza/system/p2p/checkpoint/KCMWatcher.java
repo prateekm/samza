@@ -65,7 +65,7 @@ public class KCMWatcher implements CheckpointWatcher {
                         .map(e -> Pair.of(e.getKey(), e.getValue())); // (taskname, p2p ssp offset)
                   })
               .forEach(p -> {
-                    ProducerOffset offset = new ProducerOffset(Util.parseOffsetVector(p.getRight())[producerId]);
+                    ProducerOffset offset = new ProducerOffset(Util.parseOffsetVector(p.getRight())[producerId].trim());
                     LOGGER.trace("Setting p2p ssp: {} checkpointed offset for producer: {} to: {}",
                         p.getLeft(), producerId, offset);
                     // TODO handle broadcast p2p streams? same ssp in multiple tasks
