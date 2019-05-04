@@ -22,6 +22,7 @@ import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
 import org.apache.samza.container.TaskName;
+import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.Constants;
 import org.apache.samza.system.p2p.ProducerOffset;
 import org.apache.samza.system.p2p.Util;
@@ -36,7 +37,7 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
 
   @Override
   public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
-      ConcurrentMap<Integer, ProducerOffset> lastTaskCheckpointedOffsets) {
+      ConcurrentMap<SystemStreamPartition, ProducerOffset> lastTaskCheckpointedOffsets) {
     this.watcher = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
           try {
@@ -48,7 +49,8 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
               String producerOffset = Util.parseOffsetVector(fileContents)[producerId].trim();
               Integer taskId = Integer.valueOf(taskName.getTaskName().split("\\s")[1]);
               LOGGER.info("Setting checkpointed offset for task: {} to: {}", taskName, producerOffset);
-              lastTaskCheckpointedOffsets.put(taskId, new ProducerOffset(producerOffset));
+              // TODO BLOCKER FIX CHECKPOITN FORMAT TO SUPPORT MULTI P2P SSP PER TASK
+//              lastTaskCheckpointedOffsets.put(taskId, new ProducerOffset(producerOffset));
             }
             lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY,
                 ProducerOffset.MIN_VALUE);

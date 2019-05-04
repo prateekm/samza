@@ -19,11 +19,12 @@
 package org.apache.samza.system.p2p.checkpoint;
 
 import java.util.concurrent.ConcurrentMap;
+import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.ProducerOffset;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public interface CheckpointWatcher {
   void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
-      ConcurrentMap<Integer, ProducerOffset> lastTaskCheckpointedOffsets);
+      ConcurrentMap<SystemStreamPartition, ProducerOffset> lastTaskCheckpointedOffsets);
   void close();
 }

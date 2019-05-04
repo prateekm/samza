@@ -22,6 +22,8 @@ import com.google.common.primitives.Ints;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.apache.samza.Partition;
+import org.apache.samza.system.SystemStreamPartition;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
 
@@ -34,7 +36,8 @@ public class Constants {
   public static final int PRODUCER_CH_SEND_INTERVAL = 100;
   public static final int PRODUCER_CHECKPOINT_WATCHER_INTERVAL = 1000;
   public static final int PRODUCER_FLUSH_SLEEP_MS = 1000;
-  public static final int CHECKPOINTS_READ_ONCE_DUMMY_KEY = -1;
+  public static final SystemStreamPartition CHECKPOINTS_READ_ONCE_DUMMY_KEY =
+      new SystemStreamPartition("", "", new Partition(-1));
 
   public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
   public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
