@@ -19,7 +19,6 @@
 package org.apache.samza.system.p2p.jobinfo;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableSet;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -43,14 +42,14 @@ import org.apache.samza.system.p2p.Constants;
 public class JobInfo {
   private final Config config;
   private final Map<Integer, Integer> taskToContainerMapping;
-  private final Map<Integer, Integer> p2pSSPToTaskMapping;
+  private final Map<Integer, Integer> p2pPartitionToTaskMapping;
   private final JobModel jobModel;
 
   public JobInfo(Config config) {
     this.config = config;
     this.taskToContainerMapping = new HashMap<>();
-    this.p2pSSPToTaskMapping = new HashMap<>();
-    this.jobModel = createJobModel(); // also populates taskToContainerMapping and p2pSSPToTaskMapping
+    this.p2pPartitionToTaskMapping = new HashMap<>();
+    this.jobModel = createJobModel(); // also populates taskToContainerMapping and p2pPartitionToTaskMapping
   }
 
   public int getNumPartitions() {
@@ -66,19 +65,15 @@ public class JobInfo {
     int numInputPartitions = config.getInt(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY);
 
     String[] taskInputs = config.get(TaskConfig.INPUT_STREAMS()).split(",");
-    String p2pSystemStream;
-    String inputSystemStream;
-    if (taskInputs[0].startsWith(Constants.P2P_SYSTEM_NAME)) {
-      p2pSystemStream = taskInputs[0];
-      inputSystemStream = taskInputs[1];
-    } else {
-      inputSystemStream = taskInputs[0];
-      p2pSystemStream = taskInputs[1];
+    List<String> p2pSystemStreams = new ArrayList<>();
+    List<String> inputSystemStreams = new ArrayList<>();
+    for (int i = 0; i < taskInputs.length; i++) {
+      if (taskInputs[i].startsWith(Constants.P2P_SYSTEM_NAME)) {
+        p2pSystemStreams.add(taskInputs[i]);
+      } else {
+        inputSystemStreams.add(taskInputs[i]);
+      }
     }
-    String inputSystemName = inputSystemStream.split("\\.")[0];
-    String inputStreamName = inputSystemStream.split("\\.")[1];
-    String p2pSystemName = p2pSystemStream.split("\\.")[0];
-    String p2pStreamName = p2pSystemStream.split("\\.")[1];
 
     Map<String, ContainerModel> containerModels = new HashMap<>();
     int taskNumber = 0;
@@ -86,9 +81,26 @@ public class JobInfo {
     for (int containerId = 0; containerId < numContainers; containerId++) {
       Map<TaskName, TaskModel> taskModels = new HashMap<>();
       for (int j = 0; j < numSourceTasksPerContainer; j++) {
-        taskModels.put(new TaskName("Source " + taskNumber), new TaskModel(new TaskName("Source " + taskNumber), ImmutableSet.of(new SystemStreamPartition(inputSystemName, inputStreamName, new Partition(taskNumber))), new Partition(taskNumber)));
-        taskModels.put(new TaskName("Sink " + taskNumber), new TaskModel(new TaskName("Sink " + taskNumber), ImmutableSet.of(new SystemStreamPartition(p2pSystemName, p2pStreamName, new Partition(taskNumber))), new Partition(taskNumber)));
-        p2pSSPToTaskMapping.put(taskNumber, taskNumber); // TODO assumes p2p ssp num == task num
+        Set<SystemStreamPartition> inputSSPs = new HashSet<>();
+        int finalTaskNumber = taskNumber;
+        inputSystemStreams.forEach(ss -> {
+          String inputSystemName = ss.split("\\.")[0];
+          String inputStreamName = ss.split("\\.")[1];
+          inputSSPs.add(new SystemStreamPartition(inputSystemName, inputStreamName, new Partition(finalTaskNumber)));
+        });
+        TaskName sourceTaskName = new TaskName("Source " + taskNumber);
+        taskModels.put(sourceTaskName, new TaskModel(sourceTaskName, inputSSPs, new Partition(taskNumber)));
+
+        Set<SystemStreamPartition> p2pSSPs = new HashSet<>();
+        p2pSystemStreams.forEach(ss -> {
+          String p2pSystemName = ss.split("\\.")[0];
+          String p2pStreamName = ss.split("\\.")[1];
+          p2pSSPs.add(new SystemStreamPartition(p2pSystemName, p2pStreamName, new Partition(finalTaskNumber)));
+        });
+        TaskName sinkTaskName = new TaskName("Sink " + taskNumber);
+        taskModels.put(sinkTaskName, new TaskModel(sinkTaskName, p2pSSPs, new Partition(taskNumber)));
+
+        p2pPartitionToTaskMapping.put(taskNumber, taskNumber); // TODO assumes p2p partition num == task num
         taskToContainerMapping.put(taskNumber, containerId);
         taskNumber++;
       }
@@ -110,11 +122,11 @@ public class JobInfo {
   }
 
   public int getConsumerFor(int partition) {
-    return taskToContainerMapping.get(p2pSSPToTaskMapping.get(partition));
+    return taskToContainerMapping.get(p2pPartitionToTaskMapping.get(partition));
   }
 
   public int getTaskFor(int partition) {
-    return p2pSSPToTaskMapping.get(partition);
+    return p2pPartitionToTaskMapping.get(partition);
   }
 
   @VisibleForTesting // used in tests only
