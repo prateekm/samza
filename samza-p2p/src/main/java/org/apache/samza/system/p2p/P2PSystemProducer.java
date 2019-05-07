@@ -311,7 +311,7 @@ public class P2PSystemProducer implements SystemProducer {
         if (lastTaskSentOffset != null
             && lastTaskSentOffset.compareTo(lastTaskCheckpointedOffset) > 0) {
           LOGGER.trace("Blocking flush since SSP: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
-              ssp, lastTaskCheckpointedOffset, lastTaskSentOffset);
+              ssp, lastTaskSentOffset, lastTaskCheckpointedOffset);
           isUpToDate = false;
           break;
         }
