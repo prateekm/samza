@@ -106,6 +106,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
     private int producerId;
     private volatile boolean shutdown = false;
+    private int numMessagesReceived = 0; // TODO add gauge
 
     ConsumerConnectionHandler(int consumerId, Socket socket,
         AtomicReferenceArray<ProducerOffset> producerOffsets, MessageSink messageSink) {
@@ -164,8 +165,16 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     private void handleWrite(DataInputStream inputStream) throws IOException, InterruptedException {
       byte[] producerOffsetBytes = new byte[ProducerOffset.NUM_BYTES];
       inputStream.readFully(producerOffsetBytes);
-      LOGGER.trace("Received write request from producer: {} with offset: {} in Consumer: {}",
-          producerId, new ProducerOffset(producerOffsetBytes), consumerId);
+
+      ProducerOffset producerOffset = new ProducerOffset(producerOffsetBytes);
+      if (numMessagesReceived % 1000 == 0) {
+        LOGGER.debug("Received write request from producer: {} with offset: {} in Consumer: {}",
+            producerId, producerOffset, consumerId);
+      } else {
+        LOGGER.trace("Received write request from producer: {} with offset: {} in Consumer: {}",
+            producerId, producerOffset, consumerId);
+      }
+
 
       int systemLength = inputStream.readInt();
       byte[] systemBytes = new byte[systemLength];
@@ -180,7 +189,11 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       String streamName = new String(streamBytes);
       SystemStreamPartition ssp = new SystemStreamPartition(systemName, streamName, new Partition(partition));
 
-      LOGGER.trace("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
+      if (numMessagesReceived % 1000 == 0) {
+        LOGGER.debug("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
+      } else {
+        LOGGER.trace("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
+      }
 
       int keyLength = inputStream.readInt();
       byte[] keyBytes = new byte[keyLength];
@@ -190,11 +203,12 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       byte[] messageBytes = new byte[messageLength];
       inputStream.readFully(messageBytes);
 
-      producerOffsets.set(producerId, new ProducerOffset(producerOffsetBytes));
+      producerOffsets.set(producerId, producerOffset);
       String sspOffset = producerOffsets.toString(); // approx / non atomic OK.
       IncomingMessageEnvelope ime = new IncomingMessageEnvelope(ssp, sspOffset, keyBytes, messageBytes);
 
       try {
+        numMessagesReceived++;
         messageSink.put(ssp, ime);
       } catch (Exception e) {
         LOGGER.error("Error putting IME: {} for SSP: {} in BEM", ime, ssp);

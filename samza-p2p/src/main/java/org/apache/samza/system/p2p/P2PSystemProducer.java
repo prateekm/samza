@@ -181,9 +181,7 @@ public class P2PSystemProducer implements SystemProducer {
       for (int consumerId = 0; consumerId < config.getInt(JobConfig.JOB_CONTAINER_COUNT()); consumerId++) {
         try {
           Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
-        } catch (NoSuchFileException e) {
-
-        }
+        } catch (NoSuchFileException e) { }
 
         PersistentQueue persistentQueue =
             persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
@@ -232,7 +230,6 @@ public class P2PSystemProducer implements SystemProducer {
 
     senderTasks.add(taskName);
     String destinationConsumerId = String.valueOf(jobInfo.getConsumerFor(partition));
-    int destinationTaskId = jobInfo.getTaskFor(partition);
 
     /**
      * There are (at least) two concurrency issues we need to handle here (if job.container.thread.pool.size > 1
@@ -275,7 +272,12 @@ public class P2PSystemProducer implements SystemProducer {
       }
       sspLastSentOffset.put(destinationSSP, offset);
 
-      LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
+      if (offset.getMessageId() % 1000 == 0) {
+        LOGGER.debug("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
+      } else {
+        LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
+      }
+
       try {
         persistentQueues.get(destinationConsumerId).append(offset, buffer.array());
       } catch (Exception e) {
@@ -290,7 +292,7 @@ public class P2PSystemProducer implements SystemProducer {
       return;
     }
 
-    LOGGER.trace("Flush requested from task: {}", taskName);
+    LOGGER.debug("Flush requested from task: {}", taskName);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
       try {
@@ -310,7 +312,7 @@ public class P2PSystemProducer implements SystemProducer {
         ProducerOffset lastTaskSentOffset = currentLastTaskSentOffsets.get(ssp);
         if (lastTaskSentOffset != null
             && lastTaskSentOffset.compareTo(lastTaskCheckpointedOffset) > 0) {
-          LOGGER.trace("Blocking flush since SSP: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
+          LOGGER.debug("Blocking flush since SSP: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
               ssp, lastTaskSentOffset, lastTaskCheckpointedOffset);
           isUpToDate = false;
           break;
@@ -337,7 +339,7 @@ public class P2PSystemProducer implements SystemProducer {
       }
     }
 
-    LOGGER.trace("Flush completed for task: {}", taskName);
+    LOGGER.debug("Flush completed for task: {}", taskName);
   }
 
   private ProducerOffset getMaxCheckpointedOffset() {
@@ -362,6 +364,7 @@ public class P2PSystemProducer implements SystemProducer {
 
     private Socket socket = new Socket();
     private volatile boolean shutdown = false;
+    private int numMessagesSent = 0; // TODO add gauge
 
     ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue,
         ConsumerLocalityManager consumerLocalityManager) {
@@ -417,7 +420,7 @@ public class P2PSystemProducer implements SystemProducer {
         ProducerOffset lastSentOffset = sendSince(startingOffset, outputStream);
         if (lastSentOffset != startingOffset) {
           startingOffset = lastSentOffset.nextOffset();
-          LOGGER.trace("Next starting offset: {} for Producer: {}", startingOffset, producerId);
+          LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
         }
         Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
       }
@@ -447,12 +450,20 @@ public class P2PSystemProducer implements SystemProducer {
         byte[] storedOffset = entry.getKey();
         byte[] payload = entry.getValue();
 
-        LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
-            new ProducerOffset(storedOffset), consumerId, producerId);
+        ProducerOffset producerOffset = new ProducerOffset(storedOffset);
+        if (numMessagesSent % 1000 == 0) {
+          LOGGER.debug("Sending data for offset: {} to Consumer: {} from Producer: {}",
+              producerOffset, consumerId, producerId);
+        } else {
+          LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
+              producerOffset, consumerId, producerId);
+        }
+
         outputStream.write(Constants.OPCODE_WRITE);
         outputStream.write(storedOffset);
         outputStream.write(payload);
-        lastSentOffset = new ProducerOffset(storedOffset);
+        numMessagesSent++;
+        lastSentOffset = producerOffset;
       }
 
       outputStream.flush();
