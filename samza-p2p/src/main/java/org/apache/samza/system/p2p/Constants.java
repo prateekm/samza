@@ -46,6 +46,8 @@ public class Constants {
   public static final byte[] OPCODE_SYNC = Ints.toByteArray(OPCODE_SYNC_INT);
   public static final int OPCODE_WRITE_INT = 2;
   public static final byte[] OPCODE_WRITE = Ints.toByteArray(OPCODE_WRITE_INT);
+  public static final int OPCODE_HEARTBEAT_INT = 3;
+  public static final byte[] OPCODE_HEARTBEAT = Ints.toByteArray(OPCODE_HEARTBEAT_INT);
 
   private static final String STATE_BASE_PATH = "state";
   private static final String PERSISTENT_QUEUE_BASE_PATH = "stores/producer";

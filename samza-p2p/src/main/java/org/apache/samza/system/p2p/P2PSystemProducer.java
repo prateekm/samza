@@ -379,7 +379,8 @@ public class P2PSystemProducer implements SystemProducer {
       LOGGER.info("ProducerConnectionHandler handler to Consumer: {} for Producer: {} is now running.", consumerId, producerId);
       try {
         while (!shutdown && !socket.isConnected()) {
-          socket.setTcpNoDelay(true);
+          socket.setKeepAlive(true); // tcp keepalive, timeout at os level (2+ hours default)
+          // don't use tcpNoDelay for remote connections. don't use soTimeout since we don't read anything.
           try {
             // read the consumer port from metadata store every time.
             InetSocketAddress consumerAddress = consumerLocalityManager.getConsumerAddress(String.valueOf(consumerId));
@@ -421,6 +422,8 @@ public class P2PSystemProducer implements SystemProducer {
         if (lastSentOffset != startingOffset) {
           startingOffset = lastSentOffset.nextOffset();
           LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
+        } else {
+          outputStream.write(Constants.OPCODE_HEARTBEAT); // to detect disconnects
         }
         Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
       }

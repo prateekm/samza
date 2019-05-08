@@ -49,6 +49,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
   private final MessageSink messageSink;
   private final AtomicReferenceArray<ProducerOffset> producerOffsets;
   private final Thread acceptorThread;
+  private volatile boolean shutdown = false;
 
   public P2PSystemConsumer(int consumerId, Config config, MetricsRegistry metricsRegistry, Clock clock,
       ConsumerLocalityManager consumerLocalityManager) {
@@ -71,13 +72,19 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
           consumerLocalityManager.start();
           consumerLocalityManager.writeConsumerPort(String.valueOf(consumerId), consumerPort);
           consumerLocalityManager.stop();
-          while (!Thread.currentThread().isInterrupted()) {
+          while (!shutdown && !Thread.currentThread().isInterrupted()) {
             Socket socket = serverSocket.accept();
+            socket.setKeepAlive(true); // tcp keepalive, timeout at os level (2+ hours default)
+            // don't use tcpNoDelay for remote connections. don't use soTimeout since producer may not send for a while.
             connectionHandler = new ConsumerConnectionHandler(consumerId, socket, producerOffsets, messageSink);
             connectionHandlers.add(connectionHandler);
             connectionHandler.start();
           }
-          LOGGER.info("Exiting connection accept loop in Consumer: {}", consumerId);
+          LOGGER.warn("Exiting connection accept loop in Consumer: {}", consumerId);
+          if (!shutdown) {
+            throw new RuntimeException("Prematurely exiting connection accept loop in Consumer: " + consumerId +
+                ". Thread interrupted: " + Thread.currentThread().isInterrupted());
+          }
         } catch (Exception e) {
           throw new RuntimeException("Error handling connection in Consumer." + consumerId, e);
         }
@@ -92,9 +99,8 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
   @Override
   public void stop() {
-    acceptorThread.interrupt();
+    shutdown = true;
     connectionHandlers.forEach(ConsumerConnectionHandler::close);
-    // TODO close socket? isShuttingDown boolean?
   }
 
   private static class ConsumerConnectionHandler extends Thread {
@@ -110,7 +116,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
     ConsumerConnectionHandler(int consumerId, Socket socket,
         AtomicReferenceArray<ProducerOffset> producerOffsets, MessageSink messageSink) {
-      super("ConsumerConnectionHandler " + consumerId);
+      super("ConsumerConnectionHandler PreConnect");
       this.consumerId = consumerId;
       this.socket = socket;
       this.producerOffsets = producerOffsets;
@@ -133,6 +139,9 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
             case Constants.OPCODE_WRITE_INT:
               handleWrite(inputStream);
               break;
+            case Constants.OPCODE_HEARTBEAT_INT:
+              handleHeartbeat(inputStream);
+              break;
             default:
               throw new UnsupportedOperationException("Unknown opCode: " + Ints.fromByteArray(opCode) + " in Consumer: " + consumerId);
           }
@@ -153,13 +162,18 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
 
     public void close() {
       this.shutdown = true;
-      this.interrupt();
+      try {
+        socket.close(); // necessary in case thread is blocked on read
+      } catch (Exception e) {
+        LOGGER.error("Error during ConsumerConnectionHandler close in Consumer: {}", consumerId, e);
+      }
     }
 
     private void handleSync(DataInputStream inputStream) throws IOException {
       byte[] producerId = new byte[4];
       inputStream.readFully(producerId);
       this.producerId = Ints.fromByteArray(producerId);
+      this.setName("ConsumerConnectionHandler " + this.producerId);
     }
 
     private void handleWrite(DataInputStream inputStream) throws IOException, InterruptedException {
@@ -214,6 +228,10 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
         LOGGER.error("Error putting IME: {} for SSP: {} in BEM", ime, ssp);
         throw e;
       }
+    }
+
+    private void handleHeartbeat(DataInputStream inputStream) {
+      LOGGER.trace("Received heartbeat request from producer: {} in Consumer: {}", producerId, consumerId);
     }
   }
 
