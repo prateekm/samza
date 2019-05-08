@@ -423,7 +423,7 @@ public class P2PSystemProducer implements SystemProducer {
           startingOffset = lastSentOffset.nextOffset();
           LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
         } else {
-          outputStream.write(Constants.OPCODE_HEARTBEAT); // to detect disconnects
+          outputStream.write(Constants.OPCODE_HEARTBEAT); // to detect disconnects (TODO reduce frequency)
         }
         Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
       }
