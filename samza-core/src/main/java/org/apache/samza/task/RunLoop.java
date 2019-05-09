@@ -525,6 +525,13 @@ public class RunLoop implements Runnable, Throttleable {
      * Invoke commit. Run commit in thread pool if not the single thread mode.
      */
     private void commit() {
+      if (state.commitInFlight) {
+        // if the previous commit is still executing, let it finish, try again later
+        // not ideal since it skips current commit, should ideally just queue a commit after this one finishes
+        state.needCommit = false;
+        return;
+      }
+
       state.startCommit();
       Runnable commitWorker = new Runnable() {
         @Override

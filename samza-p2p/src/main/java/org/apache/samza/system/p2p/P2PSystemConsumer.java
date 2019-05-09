@@ -86,21 +86,24 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
                 ". Thread interrupted: " + Thread.currentThread().isInterrupted());
           }
         } catch (Exception e) {
-          throw new RuntimeException("Error handling connection in Consumer." + consumerId, e);
+          throw new RuntimeException("Error handling connection in consumer." + consumerId, e);
         }
       }, "ConsumerConnectionAcceptor " + consumerId);
   }
 
   @Override
   public void start() {
-    LOGGER.info("Consumer: {} is starting.", consumerId);
+    LOGGER.info("Starting P2PSystemConsumer: {}.", consumerId);
     acceptorThread.start();
+    LOGGER.info("Started P2PSystemConsumer: {}.", consumerId);
   }
 
   @Override
   public void stop() {
+    LOGGER.info("Stopping P2PSystemConsumer: {}.", consumerId);
     shutdown = true;
     connectionHandlers.forEach(ConsumerConnectionHandler::close);
+    LOGGER.info("Stopped P2PSystemConsumer: {}.", consumerId);
   }
 
   private static class ConsumerConnectionHandler extends Thread {
@@ -110,7 +113,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
     private final AtomicReferenceArray<ProducerOffset> producerOffsets;
     private final MessageSink messageSink;
 
-    private int producerId;
+    private int producerId = -1;
     private volatile boolean shutdown = false;
     private int numMessagesReceived = 0; // TODO add gauge
 
@@ -146,27 +149,30 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
               throw new UnsupportedOperationException("Unknown opCode: " + Ints.fromByteArray(opCode) + " in Consumer: " + consumerId);
           }
         }
+        LOGGER.info("Exiting receive loop in ConsumerConnectionHandler in Consumer: {} for Producer: {}", consumerId, producerId);
       } catch (EOFException | SocketException e) {
-        LOGGER.info("Shutting down connection handler in Consumer: {} due to connection close.", consumerId);
+        LOGGER.info("Shutting down connection handler in Consumer: {} for Producer: {} due to connection close.", this.producerId, consumerId);
       } catch (Exception e) {
-        LOGGER.info("Error in connection handler in Consumer: {}", consumerId, e);
+        LOGGER.info("Error in connection handler in Consumer: {} for Producer: {}", consumerId, producerId, e);
         throw new SamzaException(e);
       } finally {
         try {
           socket.close();
         } catch (Exception e) {
-          LOGGER.info("Error during ConsumerConnectionHandler shutdown in Consumer: {}", consumerId, e);
+          LOGGER.info("Error during ConsumerConnectionHandler shutdown in Consumer: {} for Producer: {}", consumerId, producerId, e);
         }
       }
     }
 
     public void close() {
+      LOGGER.info("Closing ConsumerConnectionHandler in Consumer: {} for Producer: {}.", consumerId, producerId);
       this.shutdown = true;
       try {
         socket.close(); // necessary in case thread is blocked on read
       } catch (Exception e) {
-        LOGGER.error("Error during ConsumerConnectionHandler close in Consumer: {}", consumerId, e);
+        LOGGER.error("Error during ConsumerConnectionHandler close in Consumer: {} for Producer: {}", consumerId, producerId, e);
       }
+      LOGGER.info("Closed ConsumerConnectionHandler in Consumer: {} for Producer: {}.", consumerId, producerId);
     }
 
     private void handleSync(DataInputStream inputStream) throws IOException {

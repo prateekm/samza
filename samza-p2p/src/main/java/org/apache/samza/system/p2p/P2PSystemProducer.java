@@ -116,6 +116,7 @@ public class P2PSystemProducer implements SystemProducer {
 
   @Override
   public void start() {
+    LOGGER.info("Starting P2PSystemProducer: {}", producerId);
     consumerLocalityManager.start();
     checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, sspLastCheckpointedOffset);
 
@@ -192,14 +193,18 @@ public class P2PSystemProducer implements SystemProducer {
     } catch (Exception e) {
       throw new SamzaException("Unable to start P2PSystemProducer", e);
     }
+
+    LOGGER.info("Started P2PSystemProducer: {}", producerId);
   }
 
   @Override
   public void stop() {
+    LOGGER.info("Stopping P2PSystemProducer: {}", producerId);
     checkpointWatcher.close();
     connectionHandlers.forEach(ProducerConnectionHandler::close);
     persistentQueues.forEach((id, pq) -> pq.close());
     consumerLocalityManager.stop();
+    LOGGER.info("Stopped P2PSystemProducer: {}", producerId);
   }
 
   @Override
@@ -376,7 +381,7 @@ public class P2PSystemProducer implements SystemProducer {
     }
 
     public void run() {
-      LOGGER.info("ProducerConnectionHandler handler to Consumer: {} for Producer: {} is now running.", consumerId, producerId);
+      LOGGER.info("ProducerConnectionHandler to Consumer: {} for Producer: {} is now running.", consumerId, producerId);
       try {
         while (!shutdown && !socket.isConnected()) {
           socket.setKeepAlive(true); // tcp keepalive, timeout at os level (2+ hours default)
@@ -395,12 +400,14 @@ public class P2PSystemProducer implements SystemProducer {
             Thread.sleep(Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL);
           }
         }
+        LOGGER.info("Exiting connect/send loop in ProducerConnectionHandler to Consumer: {} for Producer: {}", consumerId, producerId);
       } catch (Exception e) {
         throw new SamzaException("Error in ProducerConnectionHandler to Consumer: " + consumerId + " in Producer: " + producerId, e);
       }
     }
 
     void close() {
+      LOGGER.info("Closing ProducerConnectionHandler to Consumer: {} for Producer: {}", consumerId, producerId);
       shutdown = true;
       try {
         socket.close();
@@ -408,6 +415,7 @@ public class P2PSystemProducer implements SystemProducer {
         throw new SamzaException(
             String.format("Error closing socket to Consumer: %s in Producer: %s", consumerId, producerId), e);
       }
+      LOGGER.info("Closed ProducerConnectionHandler to Consumer: {} for Producer: {}", consumerId, producerId);
     }
 
     private void send(Socket socket) throws Exception {
