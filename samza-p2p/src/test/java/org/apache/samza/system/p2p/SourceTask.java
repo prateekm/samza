@@ -58,7 +58,9 @@ public class SourceTask {
           producer.send(taskName, new OutgoingMessageEnvelope(p2pSystemStream, key, value));
 
           try {
-            Thread.sleep(Constants.Test.TASK_PRODUCE_INTERVAL);
+            if (Constants.Test.TASK_PRODUCE_INTERVAL > 0) {
+              Thread.sleep(Constants.Test.TASK_PRODUCE_INTERVAL);
+            }
           } catch (InterruptedException e) { }
         }
       }, "TaskProduceThread " + taskName);

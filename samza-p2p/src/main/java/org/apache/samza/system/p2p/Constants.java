@@ -42,12 +42,9 @@ public class Constants {
   public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
   public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
 
-  public static final int OPCODE_SYNC_INT = 1;
-  public static final byte[] OPCODE_SYNC = Ints.toByteArray(OPCODE_SYNC_INT);
-  public static final int OPCODE_WRITE_INT = 2;
-  public static final byte[] OPCODE_WRITE = Ints.toByteArray(OPCODE_WRITE_INT);
-  public static final int OPCODE_HEARTBEAT_INT = 3;
-  public static final byte[] OPCODE_HEARTBEAT = Ints.toByteArray(OPCODE_HEARTBEAT_INT);
+  public static final int OPCODE_SYNC = 1;
+  public static final int OPCODE_WRITE = 2;
+  public static final int OPCODE_HEARTBEAT = 3;
 
   private static final String STATE_BASE_PATH = "state";
   private static final String PERSISTENT_QUEUE_BASE_PATH = "stores/producer";
@@ -59,14 +56,14 @@ public class Constants {
   public static class Test {
     public static final int EXECUTION_ID = 0;
     public static final int TOTAL_RUNTIME_SECONDS = 1800;
-    public static final int MIN_RUNTIME_SECONDS = 60;
-    public static final int MAX_RUNTIME_SECONDS = 120;
+    public static final int MIN_RUNTIME_SECONDS = 120;
+    public static final int MAX_RUNTIME_SECONDS = 300;
     public static final int INTERVAL_BETWEEN_RESTART_SECONDS = 5;
 
     public static final int NUM_CONTAINERS = 2; // job.container.count
     public static final int NUM_PARTITIONS = 4; // p2p.input.num.partitions
 
-    public static final int TASK_PRODUCE_INTERVAL = 100;
+    public static final int TASK_PRODUCE_INTERVAL = 0;
     public static final int TASK_FLUSH_INTERVAL = 1000;
     public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 

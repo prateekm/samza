@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 import org.apache.samza.SamzaException;
 import org.apache.samza.system.IncomingMessageEnvelope;
+import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,20 +34,21 @@ public class SinkTask {
   private final JobInfo jobInfo;
   private final Thread commitThread;
 
+  private volatile SystemStreamPartition ssp = null;
   private volatile String lastReceivedOffset = null;
   private volatile boolean shutdown = false;
 
   public SinkTask(String taskName, JobInfo jobInfo) {
     this.taskName = taskName;
     this.jobInfo = jobInfo;
-
     this.commitThread = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
           String currentLastReceivedOffset = this.lastReceivedOffset;
           if (currentLastReceivedOffset != null) {
-            LOGGER.info("Writing checkpoint file with offset: {}", currentLastReceivedOffset);
+            LOGGER.info("Writing checkpoint file for task: {} with offset: {}", taskName, currentLastReceivedOffset);
             try {
-              Util.writeFile(Constants.Test.getTaskCheckpointPath(taskName), currentLastReceivedOffset);
+              String checkpoint = this.ssp.toString() + ":" + currentLastReceivedOffset;
+              Util.writeFile(Constants.Test.getTaskCheckpointPath(taskName), checkpoint);
             } catch (Exception e) {
               throw new SamzaException("Could not write checkpoint file.", e);
             }
@@ -70,7 +72,7 @@ public class SinkTask {
         Preconditions.checkState(("Sink " + partition).equals(taskName));
         // TODO record data / add more asserts
       });
-
+    this.ssp = imes.get(imes.size() - 1).getSystemStreamPartition();
     this.lastReceivedOffset = imes.get(imes.size() - 1).getOffset();
   }
 

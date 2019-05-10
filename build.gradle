@@ -411,7 +411,9 @@ project(":samza-p2p_$scalaSuffix") {
     compile project(':samza-api')
     compile project(":samza-core_$scalaSuffix") // TODO remove
     compile "com.google.guava:guava:$guavaVersion"
-    compile "io.netty:netty-all:$nettyVersion"
+    compile ("io.netty:netty-all:$nettyVersion") {
+      force = true
+    }
     compile "org.apache.commons:commons-lang3:$commonsLang3Version"
     compile "org.rocksdb:rocksdbjni:$rocksdbVersion"
     compile "org.scala-lang:scala-library:$scalaVersion"
@@ -423,7 +425,8 @@ project(":samza-p2p_$scalaSuffix") {
     testCompile "org.slf4j:slf4j-simple:$slf4jVersion"
     configurations {
       all*.exclude group: 'org.slf4j', module: 'slf4j-log4j12' // TODO remove
-      all*.exclude group: 'org.jboss.netty', module: 'netty'
+      all*.exclude group: 'org.jboss.netty', module: 'netty-all'
+      all*.exclude group: 'io.netty', module: 'netty' // use netty-all instead
     }
   }
   

@@ -21,6 +21,7 @@ package org.apache.samza.system.p2p.checkpoint;
 import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
+import org.apache.samza.Partition;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.Constants;
@@ -46,18 +47,22 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
               if (taskName.getTaskName().startsWith("Source")) continue; // only check checkpoints for sinks
 
               String fileContents = Util.readFileString(Constants.Test.getTaskCheckpointPath(taskName.getTaskName()));
-              String producerOffset = Util.parseOffsetVector(fileContents)[producerId].trim();
-              Integer taskId = Integer.valueOf(taskName.getTaskName().split("\\s")[1]);
-              LOGGER.info("Setting checkpointed offset for task: {} to: {}", taskName, producerOffset);
-              // TODO BLOCKER FIX CHECKPOITN FORMAT TO SUPPORT MULTI P2P SSP PER TASK
-//              lastTaskCheckpointedOffsets.put(taskId, new ProducerOffset(producerOffset));
+              String[] fileParts = fileContents.split(":");
+              String sspString = fileParts[0];
+              String offsets = fileParts[1];
+              String[] sspParts = sspString.substring("SystemStreamPartition [".length(), sspString.length()-1).split(",");
+              SystemStreamPartition ssp = new SystemStreamPartition(sspParts[0].trim(), sspParts[1].trim(),
+                  new Partition(Integer.valueOf(sspParts[2].trim())));
+
+              String producerOffset = Util.parseOffsetVector(offsets)[producerId].trim();
+              LOGGER.trace("Setting checkpointed offset for ssp: {} to: {}", ssp, producerOffset);
+              // TODO BLOCKER FIX CHECKPOINT FORMAT TO SUPPORT MULTI P2P SSP PER TASK
+              lastTaskCheckpointedOffsets.put(ssp, new ProducerOffset(producerOffset));
             }
-            lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY,
-                ProducerOffset.MIN_VALUE);
+            lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY, ProducerOffset.MIN_VALUE);
           } catch (NoSuchFileException e) {
             LOGGER.info("No checkpoint file found. Assuming first deploy.");
-            lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY,
-                ProducerOffset.MIN_VALUE);
+            lastTaskCheckpointedOffsets.put(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY, ProducerOffset.MIN_VALUE);
           } catch (Exception e) {
             LOGGER.error("Error finding last checkpointed offsets for producerId: {}.", producerId, e);
           }

@@ -19,20 +19,35 @@
 package org.apache.samza.system.p2p;
 
 import com.google.common.primitives.Ints;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.LengthFieldPrepender;
+import io.netty.handler.codec.bytes.ByteArrayEncoder;
+import io.netty.handler.codec.compression.SnappyFrameEncoder;
 
-import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.file.NoSuchFileException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.Partition;
@@ -55,6 +70,11 @@ import org.slf4j.LoggerFactory;
 
 public class P2PSystemProducer implements SystemProducer {
   private static final Logger LOGGER = LoggerFactory.getLogger(P2PSystemProducer.class);
+  private static final EventLoopGroup EVENT_LOOP_GROUP = new NioEventLoopGroup(0, // todo epoll event loop group?
+      new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Producer Netty ELG Thread-%d").build());
+  private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(4, // todo configure. use epoll event loop group?
+      new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Data Sender Thread-%d").build());
+
   private final String systemName;
   private final int producerId;
   private final PersistentQueueFactory persistentQueueFactory;
@@ -63,10 +83,11 @@ public class P2PSystemProducer implements SystemProducer {
   private final MetricsRegistry metricsRegistry;
   private final JobInfo jobInfo;
   private final ConsumerLocalityManager consumerLocalityManager;
+  private final Bootstrap bootstrap;
 
   private final Map<String, PersistentQueue> persistentQueues;
-  private final Set<ProducerConnectionHandler> connectionHandlers;
   private final Set<String> senderTasks;
+  private volatile boolean shutdown = false;
 
   /**
    * Offsets are minted as atomic counters on each producer. Each message send (from any task to any p2p ssp)
@@ -107,8 +128,8 @@ public class P2PSystemProducer implements SystemProducer {
     this.consumerLocalityManager = consumerLocalityManager;
 
     this.persistentQueues = new ConcurrentHashMap<>();
-    this.connectionHandlers = new HashSet<>();
     this.senderTasks = new ConcurrentSkipListSet<>();
+    this.bootstrap = createBootstrap();
   }
 
   @Override
@@ -119,89 +140,16 @@ public class P2PSystemProducer implements SystemProducer {
     LOGGER.info("Starting P2PSystemProducer: {}", producerId);
     consumerLocalityManager.start();
     checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, sspLastCheckpointedOffset);
-
-    /**
-     * The checkpointed offsets for a task at producer start may be:
-     * 0. null (only if error reading checkpoint)
-     * 1. empty (only for a new job)
-     * 2. present but stale (for a job with offset reset enabled
-     * 3. present and valid (for a regular job after regular shutdown)
-     *
-     * for 0, we should retry until we're able to read checkpoint.
-     * for 1, we can set nextOffset to the min value.
-     * for 2 & 3 we can set it to max of all checkpointed offsets
-     *
-     * Invariant: flushing immediately after start without sending any messages should always succeed
-     * since initial task last sent offset == null (it's created on first send), this works fine.
-     *
-     * Why track lastSentOffset per ssp? Let's say we only tracked the producer-wide last sent offset and compared
-     * that against the min checkpoint on commit. Consider the case when only one Task sent one message then flushed,
-     * then task last sent offset = nextOffset , but we'd still be waiting for min to progress in checkpoint which
-     * won't happen until messages are sent to each ssp. Similarly, let's say we tracked the last sent offset per
-     * destination task. Consider the case where a producer sends two messages with offsets 1 and 2 to different
-     * ssps on the same destination task. Since there is no processing order guarantee across partitions, the
-     * destination task may process message 2 and checkpoint and then process message 1, leading to a false start.
-     * Hence we need to track last sent offset per destination ssp instead of per producer or per task.
-     *
-     * Why include time based epoch: Let's say we set the initial nextOffset to maxCheckpointedOffset.
-     * If consumer has messages buffered from previous producer but not checkpointed yet, we set nextOffset
-     * based on the max checkpointed offset and send message then flush and wait, consumer processes from buffer
-     * and checkpoints stale offset > min, we will unblock commit when we shouldn't. To prevent this, the producer
-     * offset needs to be monotonically increasing, even across restarts. Instead of relying on an external
-     * strongly consistent durable store, we use the current time millis at producer start as an 'approximate' but
-     * good enough monotonic counter. We make the assumption that the current time millis will not regress across
-     * producer restarts, even on different machines (i.e., clock skew < producer restart time, no machines with
-     * bad clocks). We can try to detect violations of this assumption and fix (by waiting more) or fail hard.
-     */
-    while (sspLastCheckpointedOffset.get(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY) == null) {
-      try {
-        LOGGER.trace("Waiting for last task checkpoint offset to be updated.");
-        Thread.sleep(1000);
-      } catch (InterruptedException e) { }
-    }
-
-    ProducerOffset maxCheckpointedOffset = getMaxCheckpointedOffset();
-    long prevEpoch = maxCheckpointedOffset.getEpoch();
-    // additional validation to ensure that current epoch is greater than last checkpointed epoch.
-    // it's still possible (although unlikely) that the epoch for previously delivered in-memory messages
-    // on the consumer is higher (e.g. due to a bad clock).
-    // TODO maybe we can detect this on the consumer and reject writes?
-    long currentEpoch = System.currentTimeMillis();
-    while (currentEpoch < prevEpoch + 1) {
-      LOGGER.error("Current producer epoch: {} is less than the previous producer epoch: {}", currentEpoch, prevEpoch);
-      try {
-        Thread.sleep(prevEpoch - currentEpoch);
-        currentEpoch = System.currentTimeMillis();
-      } catch (InterruptedException e) {
-        throw new RuntimeException(e);
-      }
-    }
-    this.nextOffset = new AtomicReference<>(new ProducerOffset(currentEpoch, 0));
-
-    try {
-      for (int consumerId = 0; consumerId < config.getInt(JobConfig.JOB_CONTAINER_COUNT()); consumerId++) {
-        try {
-          Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
-        } catch (NoSuchFileException e) { }
-
-        PersistentQueue persistentQueue =
-            persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
-        persistentQueues.put(String.valueOf(consumerId), persistentQueue);
-        connectionHandlers.add(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, consumerLocalityManager));
-      }
-      connectionHandlers.forEach(Thread::start);
-    } catch (Exception e) {
-      throw new SamzaException("Unable to start P2PSystemProducer", e);
-    }
-
+    this.nextOffset = getInitialNextOffset();
+    initConsumerConnections();
     LOGGER.info("Started P2PSystemProducer: {}", producerId);
   }
 
   @Override
   public void stop() {
     LOGGER.info("Stopping P2PSystemProducer: {}", producerId);
+    this.shutdown = true;
     checkpointWatcher.close();
-    connectionHandlers.forEach(ProducerConnectionHandler::close);
     persistentQueues.forEach((id, pq) -> pq.close());
     consumerLocalityManager.stop();
     LOGGER.info("Stopped P2PSystemProducer: {}", producerId);
@@ -267,7 +215,7 @@ public class P2PSystemProducer implements SystemProducer {
      * low watermark instead of store end.
      * For 2. Use a reader writer lock to allow concurrent appends (reader) from Tasks but exclusive scans (writer)
      * from ProducerConnectionHandler. Less desirable since we're locking while sending messages synchronously over
-     * network or buffering several messages in memory.
+     * network or buffering several messages in memory. // TODO maybe not that bad now since we only need to lock when creating new iterator?
      */
     synchronized (this) {
       ProducerOffset offset = this.nextOffset.get();
@@ -332,7 +280,7 @@ public class P2PSystemProducer implements SystemProducer {
     }
 
     ProducerOffset currentMinCheckpointedOffset = getMinCheckpointedOffset();
-    LOGGER.info("Deleting data up to offset: {}", currentMinCheckpointedOffset);
+    LOGGER.debug("Deleting data up to offset: {}", currentMinCheckpointedOffset);
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
       try {
@@ -347,6 +295,66 @@ public class P2PSystemProducer implements SystemProducer {
     LOGGER.debug("Flush completed for task: {}", taskName);
   }
 
+  /**
+   * The checkpointed offsets for a task at producer start may be:
+   * 0. null (only if error reading checkpoint)
+   * 1. empty (only for a new job)
+   * 2. present but stale (for a job with offset reset enabled
+   * 3. present and valid (for a regular job after regular shutdown)
+   *
+   * for 0, we should retry until we're able to read checkpoint.
+   * for 1, we can set nextOffset to the min value.
+   * for 2 & 3 we can set it to max of all checkpointed offsets
+   *
+   * Invariant: flushing immediately after start without sending any messages should always succeed
+   * since initial task last sent offset == null (it's created on first send), this works fine.
+   *
+   * Why track lastSentOffset per ssp? Let's say we only tracked the producer-wide last sent offset and compared
+   * that against the min checkpoint on commit. Consider the case when only one Task sent one message then flushed,
+   * then task last sent offset = nextOffset , but we'd still be waiting for min to progress in checkpoint which
+   * won't happen until messages are sent to each ssp. Similarly, let's say we tracked the last sent offset per
+   * destination task. Consider the case where a producer sends two messages with offsets 1 and 2 to different
+   * ssps on the same destination task. Since there is no processing order guarantee across partitions, the
+   * destination task may process message 2 and checkpoint and then process message 1, leading to a false start.
+   * Hence we need to track last sent offset per destination ssp instead of per producer or per task.
+   *
+   * Why include time based epoch: Let's say we set the initial nextOffset to maxCheckpointedOffset.
+   * If consumer has messages buffered from previous producer but not checkpointed yet, we set nextOffset
+   * based on the max checkpointed offset and send message then flush and wait, consumer processes from buffer
+   * and checkpoints stale offset > min, we will unblock commit when we shouldn't. To prevent this, the producer
+   * offset needs to be monotonically increasing, even across restarts. Instead of relying on an external
+   * strongly consistent durable store, we use the current time millis at producer start as an 'approximate' but
+   * good enough monotonic counter. We make the assumption that the current time millis will not regress across
+   * producer restarts, even on different machines (i.e., clock skew < producer restart time, no machines with
+   * bad clocks). We can try to detect violations of this assumption and fix (by waiting more) or fail hard.
+   */
+  private AtomicReference<ProducerOffset> getInitialNextOffset() {
+    while (sspLastCheckpointedOffset.get(Constants.CHECKPOINTS_READ_ONCE_DUMMY_KEY) == null) {
+      try {
+        LOGGER.trace("Waiting for last task checkpoint offset to be updated.");
+        Thread.sleep(1000);
+      } catch (InterruptedException e) { }
+    }
+
+    ProducerOffset maxCheckpointedOffset = getMaxCheckpointedOffset();
+    long prevEpoch = maxCheckpointedOffset.getEpoch();
+    // additional validation to ensure that current epoch is greater than last checkpointed epoch.
+    // it's still possible (although unlikely) that the epoch for previously delivered in-memory messages
+    // on the consumer is higher (e.g. due to a bad clock).
+    // TODO maybe we can detect this on the consumer and reject writes?
+    long currentEpoch = System.currentTimeMillis();
+    while (currentEpoch < prevEpoch + 1) {
+      LOGGER.error("Current producer epoch: {} is less than the previous producer epoch: {}", currentEpoch, prevEpoch);
+      try {
+        Thread.sleep(prevEpoch - currentEpoch);
+        currentEpoch = System.currentTimeMillis();
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    return new AtomicReference<>(new ProducerOffset(currentEpoch, 0));
+  }
+
   private ProducerOffset getMaxCheckpointedOffset() {
     // guaranteed to contain at least the dummy value (hasBeenUpdatedOnce)
     return sspLastCheckpointedOffset.values().stream().max(ProducerOffset::compareTo).get();
@@ -359,127 +367,194 @@ public class P2PSystemProducer implements SystemProducer {
         .orElse(ProducerOffset.MIN_VALUE);
   }
 
-  private static class ProducerConnectionHandler extends Thread {
+  private Bootstrap createBootstrap() {
+    Bootstrap bootstrap = new Bootstrap();
+    bootstrap.group(EVENT_LOOP_GROUP)
+        .channel(NioSocketChannel.class) // todo use epoll socket channel?
+        .handler(new ChannelInitializer<SocketChannel>() {
+          @Override
+          protected void initChannel(SocketChannel ch) {
+            LOGGER.info("New channel initialized: {}", ch);
+            ch.pipeline()
+                .addLast("snappyCompressor", new SnappyFrameEncoder()) // TODO do not need compression per message. batch?
+                .addLast("lengthFieldPrepender", new LengthFieldPrepender(4))
+                .addLast("byteArrayEncoder", new ByteArrayEncoder());
+          }
+        })
+        .option(ChannelOption.TCP_NODELAY, true);
+        // todo need to tune write buffer watermark if already checking for writable?
+        // todo bootstrap.option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)?
+        // http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#15.0
+    return bootstrap;
+  }
+
+  private void initConsumerConnections() {
+    try {
+      for (int consumerId = 0; consumerId < config.getInt(JobConfig.JOB_CONTAINER_COUNT()); consumerId++) {
+        try {
+          Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
+        } catch (NoSuchFileException e) { }
+
+        PersistentQueue persistentQueue =
+            persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
+        persistentQueues.put(String.valueOf(consumerId), persistentQueue);
+
+        doConnect(consumerId, persistentQueue);
+      }
+    } catch (Exception e) {
+      throw new SamzaException("Unable to initiate consumer connections", e);
+    }
+  }
+
+  private void doConnect(int consumerId, PersistentQueue persistentQueue) {
+    // read the consumer port from metadata store every time.
+    InetSocketAddress consumerAddress = consumerLocalityManager.getConsumerAddress(String.valueOf(consumerId));
+    LOGGER.info("Got address: {} for Consumer: {}", consumerAddress, consumerId);
+
+    ChannelFuture cf = bootstrap.connect(consumerAddress);
+
+    cf.addListener((ChannelFuture f) -> {
+      if (!f.isSuccess() && !shutdown) {
+        LOGGER.error("Error connecting to Consumer: {} in Producer: {}. Retrying", consumerId, producerId, f.cause());
+        f.channel().eventLoop()
+            .schedule(() -> doConnect(consumerId, persistentQueue),
+                Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL, TimeUnit.MILLISECONDS);
+      } else {
+        LOGGER.info("Connected to Consumer: {} in Producer: {}.", consumerId, producerId);
+        cf.channel().pipeline()
+            .addLast(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, cf.channel()));
+      }
+    });
+
+    cf.channel().closeFuture().addListener(f -> { // auto reconnect on close
+      if (!shutdown) {
+        LOGGER.error("Channel closed to Consumer: {} in Producer: {}. Retrying", consumerId, producerId, f.cause());
+        cf.channel().eventLoop().schedule(() -> doConnect(consumerId, persistentQueue),
+            Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL, TimeUnit.MILLISECONDS);
+      }
+    });
+  }
+
+  private static class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     private static final Logger LOGGER = LoggerFactory.getLogger(ProducerConnectionHandler.class);
 
     private final int producerId;
     private final int consumerId;
     private final PersistentQueue persistentQueue;
-    private final ConsumerLocalityManager consumerLocalityManager;
+    private Channel channel;
 
-    private Socket socket = new Socket();
-    private volatile boolean shutdown = false;
-    private int numMessagesSent = 0; // TODO add gauge
+    private volatile int numMessagesSent = 0; // TODO add gauge, THREAD SAFE?
+    private volatile PersistentQueueIterator currentIterator; // TODO THREAD SAFE?
+    private volatile ProducerOffset lastSentOffset = ProducerOffset.MIN_VALUE; // TODO THREAD SAFE?
 
-    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue,
-        ConsumerLocalityManager consumerLocalityManager) {
-      super("ProducerConnectionHandler " + consumerId);
+    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, Channel channel) {
       this.producerId = producerId;
       this.consumerId = consumerId;
       this.persistentQueue = persistentQueue;
-      this.consumerLocalityManager = consumerLocalityManager;
-    }
+      this.channel = channel; // TODO only safe if this is first outgoing handler in chain
 
-    public void run() {
-      LOGGER.info("ProducerConnectionHandler to Consumer: {} for Producer: {} is now running.", consumerId, producerId);
+      LOGGER.debug("SENDING HANDSHAKE {}", channel.toString());
+      // Synchronize with the consumer on connection establishment. Send producerId to consumer to identify self.
+      ByteBuffer buffer = ByteBuffer.allocate(4 + 4);
+      buffer.putInt(Constants.OPCODE_SYNC);
+      buffer.putInt(producerId);
       try {
-        while (!shutdown && !socket.isConnected()) {
-          socket.setKeepAlive(true); // tcp keepalive, timeout at os level (2+ hours default)
-          // don't use tcpNoDelay for remote connections. don't use soTimeout since we don't read anything.
-          try {
-            // read the consumer port from metadata store every time.
-            InetSocketAddress consumerAddress = consumerLocalityManager.getConsumerAddress(String.valueOf(consumerId));
-            LOGGER.info("Got address: {} for Consumer: {}", consumerAddress, consumerId);
-            socket.connect(consumerAddress, Constants.PRODUCER_CH_CONNECTION_TIMEOUT);
-            LOGGER.info("Connected to Consumer: {} at Port: {} in Producer: {}", consumerId, consumerAddress, producerId);
-            send(socket); // blocks
-          } catch (Exception ce) {
-            LOGGER.error("Error in connection to Consumer: {} in Producer: {}", consumerId, producerId, ce);
-            this.socket = new Socket();
-            LOGGER.info("Retrying connection to Consumer: {} in Producer: {}", consumerId, producerId);
-            Thread.sleep(Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL);
-          }
+        channel.writeAndFlush(buffer.array()).sync();
+      } catch (InterruptedException e) {
+        throw new SamzaException(e); // TODO CLEAN UP ADD DETAILS
+      }
+
+      // Start sending messages
+      sendData(); // must not use context
+    }
+
+    @Override
+    public void channelActive(ChannelHandlerContext context) {
+      LOGGER.debug("CHANNEL ACTIVE {}", channel.toString());
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) {
+      LOGGER.debug("CHANNEL INACTIVE {}", channel.toString());
+    }
+
+    @Override
+    public void channelRead0(ChannelHandlerContext ctx, Object msg) {
+      LOGGER.debug("CHANNEL READ UNEXPECTED {} {}", channel.toString(), msg);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+      LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
+          consumerId, producerId, cause);
+      ctx.close();
+    }
+
+    private void sendData() {
+      LOGGER.debug("SEND DATA {}", channel.toString());
+      if (hasData() && channel.isActive() && channel.isWritable()) {
+        LOGGER.debug("SEND DATA TRUE {}", channel.toString());
+        CompletableFuture
+            .supplyAsync(this::getData, EXECUTOR) // fetch data and send it on a different thread
+            .thenApply(data -> writeData(data)
+                .addListener(future -> { // todo excessive context switch per message? (runs on netty thread)
+                  if (future.isSuccess()) {
+                    sendData(); // try sending more data again immediately
+                  } else {
+                    future.cause().printStackTrace();
+                    channel.close();
+                  }
+                }));
+      } else {
+        // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
+        // note: only sent if no data to send
+        writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT)); // TODO need sync? causes blocking operation exception
+        // retry sending again later // TODO schedule on the event loop? http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#24.0
+        EVENT_LOOP_GROUP.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
+      }
+    }
+
+    private boolean hasData() {
+      LOGGER.debug("HAS DATA {}", channel.toString());
+      if (this.currentIterator != null && this.currentIterator.hasNext()) {
+        return true;
+      } else { // maybe reached end of previous iterator, recreate
+        ProducerOffset startingOffset = this.lastSentOffset.nextOffset();
+        LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
+        if (this.currentIterator != null)  {
+          this.currentIterator.close();
         }
-        LOGGER.info("Exiting connect/send loop in ProducerConnectionHandler to Consumer: {} for Producer: {}", consumerId, producerId);
-      } catch (Exception e) {
-        throw new SamzaException("Error in ProducerConnectionHandler to Consumer: " + consumerId + " in Producer: " + producerId, e);
+        this.currentIterator = this.persistentQueue.readFrom(startingOffset);
+        return this.currentIterator.hasNext();
       }
     }
 
-    void close() {
-      LOGGER.info("Closing ProducerConnectionHandler to Consumer: {} for Producer: {}", consumerId, producerId);
-      shutdown = true;
-      try {
-        socket.close();
-      } catch (IOException e) {
-        throw new SamzaException(
-            String.format("Error closing socket to Consumer: %s in Producer: %s", consumerId, producerId), e);
+    private byte[] getData() {
+      LOGGER.debug("GET DATA {}", channel.toString());
+      Pair<byte[], byte[]> entry = this.currentIterator.next();
+      byte[] storedOffset = entry.getKey();
+      byte[] payload = entry.getValue();
+      this.numMessagesSent++;
+      ProducerOffset producerOffset = new ProducerOffset(storedOffset);
+      if (this.numMessagesSent % 1000 == 0) {
+        LOGGER.debug("Sending data for offset: {} to Consumer: {} from Producer: {}",
+            producerOffset, consumerId, producerId);
+      } else {
+        LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
+            producerOffset, consumerId, producerId);
       }
-      LOGGER.info("Closed ProducerConnectionHandler to Consumer: {} for Producer: {}", consumerId, producerId);
+      this.lastSentOffset = producerOffset;
+
+      ByteBuffer buffer = ByteBuffer.allocate(4 + storedOffset.length + payload.length);// TODO use composite buf
+      buffer.putInt(Constants.OPCODE_WRITE);
+      buffer.put(storedOffset);
+      buffer.put(payload);
+      return buffer.array();
     }
 
-    private void send(Socket socket) throws Exception {
-      DataInputStream inputStream = new DataInputStream(socket.getInputStream());
-      OutputStream outputStream = socket.getOutputStream();
-
-      sync(outputStream);
-
-      ProducerOffset startingOffset = null;
-      while (!shutdown && !Thread.currentThread().isInterrupted()) {
-        ProducerOffset lastSentOffset = sendSince(startingOffset, outputStream);
-        if (lastSentOffset != startingOffset) {
-          startingOffset = lastSentOffset.nextOffset();
-          LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
-        } else {
-          outputStream.write(Constants.OPCODE_HEARTBEAT); // to detect disconnects (TODO reduce frequency)
-        }
-        Thread.sleep(Constants.PRODUCER_CH_SEND_INTERVAL);
-      }
-    }
-
-    /**
-     * Synchronize with the consumer on connection establishment:
-     *    1. Send producerId to consumer to identify self.
-     */
-    private void sync(OutputStream outputStream) throws IOException {
-      outputStream.write(Constants.OPCODE_SYNC);
-      outputStream.write(Ints.toByteArray(producerId));
-      outputStream.flush();
-    }
-
-    /**
-     * Sends all currently available data in the store since the {@code startingOffset} to the Consumer.
-     * If {@code startingOffset} is null, sends from the beginning.
-     * @return the last offset sent to consumer, which may be null.
-     */
-    private ProducerOffset sendSince(ProducerOffset startingOffset, OutputStream outputStream) throws IOException {
-      ProducerOffset lastSentOffset = startingOffset;
-      PersistentQueueIterator iterator = persistentQueue.readFrom(startingOffset);
-
-      while (iterator.hasNext()) {
-        Pair<byte[], byte[]> entry = iterator.next();
-        byte[] storedOffset = entry.getKey();
-        byte[] payload = entry.getValue();
-
-        ProducerOffset producerOffset = new ProducerOffset(storedOffset);
-        if (numMessagesSent % 1000 == 0) {
-          LOGGER.debug("Sending data for offset: {} to Consumer: {} from Producer: {}",
-              producerOffset, consumerId, producerId);
-        } else {
-          LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
-              producerOffset, consumerId, producerId);
-        }
-
-        outputStream.write(Constants.OPCODE_WRITE);
-        outputStream.write(storedOffset);
-        outputStream.write(payload);
-        numMessagesSent++;
-        lastSentOffset = producerOffset;
-      }
-
-      outputStream.flush();
-      iterator.close();
-      return lastSentOffset;
+    private ChannelFuture writeData(byte[] data) {
+      LOGGER.trace("WRITE DATA {}", channel.toString());
+      return channel.writeAndFlush(data); // todo flush necessary every time?
     }
   }
 }
