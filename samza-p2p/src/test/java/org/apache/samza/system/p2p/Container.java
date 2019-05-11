@@ -113,7 +113,6 @@ public class Container {
             pollResults.forEach((ssp, imes) -> {
                 int partitionId = ssp.getPartition().getPartitionId();
                 SinkTask task = sinkTasks.get(partitionId);
-                LOGGER.trace("Found SinkTask: {} for partitionId: {}", task, partitionId);
                 task.process(imes);
               });
           }

@@ -83,7 +83,7 @@ public class RocksDBPersistentQueue implements PersistentQueue {
         iterator.close();
         if (ProducerOffset.compareTo(startingId, endId) < 0) {
           if (LOGGER.isTraceEnabled()) {
-            LOGGER.trace("Deleting data from startingId: {} to endId: {}", ProducerOffset.toString(startingId), endId);
+            LOGGER.trace("Deleting data from startingId: {} to endId: {}", ProducerOffset.toString(startingId), ProducerOffset.toString(endId));
           }
           db.deleteRange(startingId, endId);
         } else {

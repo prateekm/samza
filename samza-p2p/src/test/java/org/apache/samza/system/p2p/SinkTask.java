@@ -71,7 +71,7 @@ public class SinkTask {
 
   void process(List<IncomingMessageEnvelope> imes) {
     imes.forEach(ime -> {
-        LOGGER.trace("Processing polled message with offset: {} in task: {}", ime.getOffset(), taskName);
+//        LOGGER.trace("Processing polled message with offset: {} in task: {}", ime.getOffset(), taskName);
         int partition = jobInfo.getPartitionFor((byte[]) ime.getKey());
         Preconditions.checkState(("Sink " + partition).equals(taskName));
         // TODO record data / add more asserts

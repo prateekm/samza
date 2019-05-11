@@ -231,9 +231,8 @@ public class P2PSystemProducer implements SystemProducer {
 
       if (offset.getMessageId() % 1000 == 0) {
         LOGGER.debug("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
-      } else {
-        LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
       }
+      LOGGER.trace("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
 
       try {
         persistentQueues.get(destinationConsumerId).append(ProducerOffset.toBytes(offset), buffer.array());

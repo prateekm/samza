@@ -6,6 +6,8 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
@@ -29,10 +31,11 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   private final PersistentQueue persistentQueue;
   private final Lock writeLock;
   private Channel channel;
+  private final WriteCompletionListener<Void> writeCompletionListener;
 
-  private int numMessagesSent = 0; // TODO THREAD SAFE?
-  private PersistentQueueIterator currentIterator; // TODO THREAD SAFE?
-  private byte[] lastSentOffset = ProducerOffset.toBytes(ProducerOffset.MIN_VALUE); // TODO THREAD SAFE?
+  private volatile int numMessagesSent = 0;
+  private volatile PersistentQueueIterator currentIterator;
+  private volatile byte[] lastSentOffset = ProducerOffset.toBytes(ProducerOffset.MIN_VALUE);
 
   ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, Lock writeLock, Channel channel) {
     this.producerId = producerId;
@@ -40,6 +43,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     this.persistentQueue = persistentQueue;
     this.writeLock = writeLock;
     this.channel = channel;
+    this.writeCompletionListener = new WriteCompletionListener<>();
 
     LOGGER.debug("SENDING HANDSHAKE {}", channel);
     // Synchronize with the consumer on connection establishment. Send producerId to consumer to identify self.
@@ -57,38 +61,36 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   }
 
   private void sendData() {
-    LOGGER.debug("LOOP SEND DATA {}", channel);
+    LOGGER.debug("In send data loop in producer: {} for consumer: {}", producerId, consumerId);
     boolean sentData = false;
     while (channel.isWritable() && channel.isActive() && hasData()) {
-      LOGGER.debug("SEND DATA {}", channel);
+      LOGGER.debug("Sending data in producer: {} for consumer: {}", producerId, consumerId);
       byte[] data = getData();
       // todo does isWritable implies can write the entire byte array or can block here?
-      writeData(data).addListener(future -> {
-          if (!future.isSuccess()) { // todo maybe not necessary to handle error here?
-            LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
-                consumerId, producerId, future.cause());
-            channel.close();
-          }
-        });
+      writeData(data).addListener(writeCompletionListener);  // todo maybe not necessary to handle error here?
       sentData = true;
     }
     // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
     if (!sentData) {
       writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT));
     }
-    P2PSystemProducer.EVENT_LOOP_GROUP.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
+    LOGGER.debug("Scheduling send for later in producer: {} for: consumer {}", producerId, consumerId);
+    P2PSystemProducer.EVENT_LOOP_GROUP.schedule(() -> EXECUTOR.submit(this::sendData), Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
   }
 
   private boolean hasData() {
-    LOGGER.debug("HAS DATA {}", channel);
+    LOGGER.debug("Has data in producer: {} for consumer: {}", producerId, consumerId);
     if (this.currentIterator != null && this.currentIterator.hasNext()) {
       return true;
     } else { // maybe reached end of previous iterator, recreate
       if (this.currentIterator != null)  {
         this.currentIterator.close();
       }
-      byte[] startingOffset = ProducerOffset.nextOffset(this.lastSentOffset); // TODO avoid frombytes and to bytes
-      LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
+      byte[] startingOffset = ProducerOffset.nextOffset(this.lastSentOffset);
+      if (LOGGER.isTraceEnabled()) {
+        LOGGER.trace("Next starting offset: {} in producer: {} for consumer: {}", ProducerOffset.toString(startingOffset), producerId, consumerId);
+      }
+
       try {
         writeLock.lock();
         this.currentIterator = this.persistentQueue.readFrom(startingOffset);
@@ -100,7 +102,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   }
 
   private byte[] getData() {
-    LOGGER.debug("GET DATA {}", channel);
+    LOGGER.debug("Get data in producer: {} for consumer: {}", producerId, consumerId);
     Pair<byte[], byte[]> entry = this.currentIterator.next();
     byte[] storedOffset = entry.getKey();
     byte[] payload = entry.getValue();
@@ -110,7 +112,8 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     if (this.numMessagesSent % 1000 == 0 && LOGGER.isDebugEnabled()) {
       LOGGER.debug("Sending data for offset: {} to Consumer: {} from Producer: {}",
           ProducerOffset.toString(storedOffset), consumerId, producerId);
-    } else if (LOGGER.isTraceEnabled()) {
+    }
+    if (LOGGER.isTraceEnabled()) {
       LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
           ProducerOffset.toString(storedOffset), consumerId, producerId);
     }
@@ -123,7 +126,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   }
 
   private ChannelFuture writeData(byte[] data) {
-    LOGGER.trace("WRITE DATA {}", channel);
+    LOGGER.trace("Writing data in producer: {} for consumer: {}", producerId, consumerId);
     return channel.writeAndFlush(data); // flushed batched by FlushConsolidationHandler
   }
 
@@ -147,5 +150,16 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
         consumerId, producerId, cause);
     ctx.close();
+  }
+
+  private class WriteCompletionListener<T> implements GenericFutureListener<Future<T>> {
+    @Override
+    public void operationComplete(Future<T> future) throws Exception {
+      if (!future.isSuccess()) {
+        LOGGER.error("Error in connection in producer: {} for consumer: {}. Closing channel.",
+            producerId, consumerId, future.cause());
+        channel.close();
+      }
+    }
   }
 }

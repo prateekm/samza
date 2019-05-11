@@ -69,14 +69,6 @@ class ConsumerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     byte[] producerOffsetBytes = new byte[ProducerOffset.NUM_BYTES];
     message.get(producerOffsetBytes);
 
-    ProducerOffset producerOffset = ProducerOffset.fromBytes(producerOffsetBytes);
-    if (numMessagesReceived % 1000 == 0) {
-      LOGGER.debug("Received write request from producer: {} with offset: {} in Consumer: {}",
-          producerId, producerOffset, consumerId);
-    } else {
-      LOGGER.trace("Received write request from producer: {} with offset: {} in Consumer: {}",
-          producerId, producerOffset, consumerId);
-    }
 
     int systemLength = message.getInt();
     byte[] systemBytes = new byte[systemLength];
@@ -91,11 +83,13 @@ class ConsumerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     String streamName = new String(streamBytes);
     SystemStreamPartition ssp = new SystemStreamPartition(systemName, streamName, new Partition(partition));
 
+    ProducerOffset producerOffset = ProducerOffset.fromBytes(producerOffsetBytes);
     if (numMessagesReceived % 1000 == 0) {
-      LOGGER.debug("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
-    } else {
-      LOGGER.trace("Received write request for ssp: {} in Consumer: {}", ssp, consumerId);
+      LOGGER.debug("Received write request from producer: {} with offset: {} for ssp: {} in Consumer: {}",
+          producerId, producerOffset, ssp, consumerId);
     }
+    LOGGER.trace("Received write request from producer: {} with offset: {} for ssp: {} in Consumer: {}",
+        producerId, producerOffset, ssp, consumerId);
 
     int keyLength = message.getInt();
     byte[] keyBytes = new byte[keyLength];
