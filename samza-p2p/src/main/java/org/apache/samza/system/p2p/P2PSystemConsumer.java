@@ -54,7 +54,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
   private static final Logger LOGGER = LoggerFactory.getLogger(P2PSystemConsumer.class);
   private static final EventLoopGroup BOSS_GROUP = new NioEventLoopGroup(1,
           new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Consumer Netty Boss ELG Thread-%d").build());
-  private static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(0, // todo configure. use epoll event loop group?
+  private static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(4, // todo configure. use epoll event loop group?
       new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Consumer Netty Worker ELG Thread-%d").build());
 
   private final int consumerId;
@@ -115,10 +115,6 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
           public void initChannel(SocketChannel ch) {
             LOGGER.debug("New channel initialized: {}", ch);
             ch.pipeline()
-                // MessageAggregator
-                // FlushConsolidationHandler
-                // IdleStateHandler
-                // https://github.com/spotify/netty-batch-flusher
                 .addLast("snappyDecompressor", new SnappyFrameDecoder()) // todo only useful if batching, maybe disable until then.
                 .addLast("frameDecoder", new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4))
                 .addLast("byteArrayDecoder", new ByteArrayDecoder())

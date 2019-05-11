@@ -34,6 +34,7 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.codec.bytes.ByteArrayEncoder;
 import io.netty.handler.codec.compression.SnappyFrameEncoder;
+import io.netty.handler.flush.FlushConsolidationHandler;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -49,6 +50,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.samza.Partition;
 import org.apache.samza.SamzaException;
@@ -70,7 +74,7 @@ import org.slf4j.LoggerFactory;
 
 public class P2PSystemProducer implements SystemProducer {
   private static final Logger LOGGER = LoggerFactory.getLogger(P2PSystemProducer.class);
-  private static final EventLoopGroup EVENT_LOOP_GROUP = new NioEventLoopGroup(0, // todo epoll event loop group?
+  private static final EventLoopGroup EVENT_LOOP_GROUP = new NioEventLoopGroup(4, // todo epoll event loop group?
       new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Producer Netty ELG Thread-%d").build());
   private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(4, // todo configure. use epoll event loop group?
       new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Data Sender Thread-%d").build());
@@ -83,11 +87,14 @@ public class P2PSystemProducer implements SystemProducer {
   private final MetricsRegistry metricsRegistry;
   private final JobInfo jobInfo;
   private final ConsumerLocalityManager consumerLocalityManager;
+  private final int numConsumers;
   private final Bootstrap bootstrap;
 
   private final Map<String, PersistentQueue> persistentQueues;
   private final Set<String> senderTasks;
+  private final ConcurrentHashMap<String, ReadWriteLock> consumerOffsetAndPQReadWriteLocks;
   private volatile boolean shutdown = false;
+
 
   /**
    * Offsets are minted as atomic counters on each producer. Each message send (from any task to any p2p ssp)
@@ -115,6 +122,7 @@ public class P2PSystemProducer implements SystemProducer {
   // exists because we need both min (during flush) and max (during start) checkpointed offsets
   private final ConcurrentHashMap<SystemStreamPartition, ProducerOffset> sspLastCheckpointedOffset = new ConcurrentHashMap<>();
 
+
   P2PSystemProducer(String systemName, int producerId, PersistentQueueFactory persistentQueueFactory,
       CheckpointWatcherFactory checkpointWatcherFactory, ConsumerLocalityManager consumerLocalityManager,
       Config config, MetricsRegistry metricsRegistry, JobInfo jobInfo) {
@@ -126,9 +134,15 @@ public class P2PSystemProducer implements SystemProducer {
     this.metricsRegistry = metricsRegistry;
     this.jobInfo = jobInfo;
     this.consumerLocalityManager = consumerLocalityManager;
+    this.numConsumers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
 
     this.persistentQueues = new ConcurrentHashMap<>();
     this.senderTasks = new ConcurrentSkipListSet<>();
+    this.consumerOffsetAndPQReadWriteLocks = new ConcurrentHashMap<>();
+
+    for (int i = 0; i < numConsumers; i++) {
+      consumerOffsetAndPQReadWriteLocks.put(String.valueOf(i), new ReentrantReadWriteLock());
+    }
     this.bootstrap = createBootstrap();
   }
 
@@ -217,13 +231,23 @@ public class P2PSystemProducer implements SystemProducer {
      * from ProducerConnectionHandler. Less desirable since we're locking while sending messages synchronously over
      * network or buffering several messages in memory. // TODO maybe not that bad now since we only need to lock when creating new iterator?
      */
-    synchronized (this) {
+    Lock consumerReadLock = consumerOffsetAndPQReadWriteLocks.get(destinationConsumerId).readLock();
+    try {
+      consumerReadLock.lock(); // has to be before next offset get, not just queue append
       ProducerOffset offset = this.nextOffset.get();
-      // not really necessary because of synchronized, but leaving as-is for now
       while (!this.nextOffset.compareAndSet(offset, offset.nextOffset())) {
         offset = this.nextOffset.get();
       }
-      sspLastSentOffset.put(destinationSSP, offset);
+
+      final ProducerOffset effectivelyFinalOffset = offset;
+      sspLastSentOffset.compute(destinationSSP, (ssp, currentOffset) -> {
+        if (currentOffset == null) return effectivelyFinalOffset;
+        if (effectivelyFinalOffset.compareTo(currentOffset) > 0) {
+          return effectivelyFinalOffset;
+        } else {
+          return currentOffset;
+        }
+      });
 
       if (offset.getMessageId() % 1000 == 0) {
         LOGGER.debug("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
@@ -236,6 +260,8 @@ public class P2PSystemProducer implements SystemProducer {
       } catch (Exception e) {
         throw new SamzaException(String.format("Error appending data for offset: %s to the queue.", offset), e);
       }
+    } finally {
+      consumerReadLock.unlock();
     }
   }
 
@@ -370,15 +396,22 @@ public class P2PSystemProducer implements SystemProducer {
   private Bootstrap createBootstrap() {
     Bootstrap bootstrap = new Bootstrap();
     bootstrap.group(EVENT_LOOP_GROUP)
+        // TODO use local channel for local consumer produce
         .channel(NioSocketChannel.class) // todo use epoll socket channel?
         .handler(new ChannelInitializer<SocketChannel>() {
           @Override
           protected void initChannel(SocketChannel ch) {
             LOGGER.info("New channel initialized: {}", ch);
             ch.pipeline()
+                .addLast("flushConsolidationHandler", new FlushConsolidationHandler(100, true)) // todo tune, stable? can block indefinitely if no new write?
                 .addLast("snappyCompressor", new SnappyFrameEncoder()) // TODO do not need compression per message. batch?
                 .addLast("lengthFieldPrepender", new LengthFieldPrepender(4))
                 .addLast("byteArrayEncoder", new ByteArrayEncoder());
+            // MessageAggregator
+            // Read/WriteTimeoutHandler?
+            // FlushConsolidationHandler
+            // IdleStateHandler
+            // https://github.com/spotify/netty-batch-flusher
           }
         })
         .option(ChannelOption.TCP_NODELAY, true);
@@ -390,7 +423,7 @@ public class P2PSystemProducer implements SystemProducer {
 
   private void initConsumerConnections() {
     try {
-      for (int consumerId = 0; consumerId < config.getInt(JobConfig.JOB_CONTAINER_COUNT()); consumerId++) {
+      for (int consumerId = 0; consumerId < numConsumers; consumerId++) {
         try {
           Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
         } catch (NoSuchFileException e) { }
@@ -421,8 +454,9 @@ public class P2PSystemProducer implements SystemProducer {
                 Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL, TimeUnit.MILLISECONDS);
       } else {
         LOGGER.info("Connected to Consumer: {} in Producer: {}.", consumerId, producerId);
+        Lock writeLock = consumerOffsetAndPQReadWriteLocks.get(String.valueOf(consumerId)).writeLock();
         cf.channel().pipeline()
-            .addLast(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, cf.channel()));
+            .addLast(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, writeLock, cf.channel()));
       }
     });
 
@@ -441,16 +475,18 @@ public class P2PSystemProducer implements SystemProducer {
     private final int producerId;
     private final int consumerId;
     private final PersistentQueue persistentQueue;
+    private final Lock writeLock;
     private Channel channel;
 
     private volatile int numMessagesSent = 0; // TODO add gauge, THREAD SAFE?
     private volatile PersistentQueueIterator currentIterator; // TODO THREAD SAFE?
     private volatile ProducerOffset lastSentOffset = ProducerOffset.MIN_VALUE; // TODO THREAD SAFE?
 
-    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, Channel channel) {
+    ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, Lock writeLock, Channel channel) {
       this.producerId = producerId;
       this.consumerId = consumerId;
       this.persistentQueue = persistentQueue;
+      this.writeLock = writeLock;
       this.channel = channel; // TODO only safe if this is first outgoing handler in chain
 
       LOGGER.debug("SENDING HANDSHAKE {}", channel.toString());
@@ -458,14 +494,15 @@ public class P2PSystemProducer implements SystemProducer {
       ByteBuffer buffer = ByteBuffer.allocate(4 + 4);
       buffer.putInt(Constants.OPCODE_SYNC);
       buffer.putInt(producerId);
-      try {
-        channel.writeAndFlush(buffer.array()).sync();
-      } catch (InterruptedException e) {
-        throw new SamzaException(e); // TODO CLEAN UP ADD DETAILS
-      }
-
-      // Start sending messages
-      sendData(); // must not use context
+      channel.writeAndFlush(buffer.array()).addListener(f -> {
+        if (f.isSuccess()) {
+          // Start sending messages
+          sendData(); // must not use context
+        } else {
+          LOGGER.error("Error sending sync message to Consumer: {} in Producer: {}. Closing channel.", consumerId, producerId);
+          channel.close();
+        }
+      });
     }
 
     @Override
@@ -497,14 +534,14 @@ public class P2PSystemProducer implements SystemProducer {
         CompletableFuture
             .supplyAsync(this::getData, EXECUTOR) // fetch data and send it on a different thread
             .thenApply(data -> writeData(data)
-                .addListener(future -> { // todo excessive context switch per message? (runs on netty thread)
-                  if (future.isSuccess()) {
-                    sendData(); // try sending more data again immediately
-                  } else {
-                    future.cause().printStackTrace();
+                .addListener(future -> { // todo excessive context / syscall overhead in doing this per message? (runs on netty thread, requries flush to complete future)
+                  if (!future.isSuccess()) { // todo maybe not necessary to handle error here?
+                    LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
+                        consumerId, producerId, future.cause());
                     channel.close();
                   }
-                }));
+                }))
+            .thenAccept(f -> sendData()); // re-queues next send if still writable
       } else {
         // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
         // note: only sent if no data to send
@@ -524,7 +561,12 @@ public class P2PSystemProducer implements SystemProducer {
         if (this.currentIterator != null)  {
           this.currentIterator.close();
         }
-        this.currentIterator = this.persistentQueue.readFrom(startingOffset);
+        try {
+          writeLock.lock();
+          this.currentIterator = this.persistentQueue.readFrom(startingOffset);
+        } finally {
+          writeLock.unlock();
+        }
         return this.currentIterator.hasNext();
       }
     }
@@ -554,7 +596,8 @@ public class P2PSystemProducer implements SystemProducer {
 
     private ChannelFuture writeData(byte[] data) {
       LOGGER.trace("WRITE DATA {}", channel.toString());
-      return channel.writeAndFlush(data); // todo flush necessary every time?
+      // todo flush not necessary every time, batch flushes?
+      return channel.writeAndFlush(data);
     }
   }
 }

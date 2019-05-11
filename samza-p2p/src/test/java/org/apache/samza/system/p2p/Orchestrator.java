@@ -20,12 +20,16 @@ package org.apache.samza.system.p2p;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.impl.SimpleLogger;
@@ -44,7 +48,7 @@ public class Orchestrator {
   private static final Logger LOGGER = LoggerFactory.getLogger(Orchestrator.class);
   private static final Random RANDOM = new Random();
 
-  public static void main(String[] args) {
+  public static void main(String[] args) throws Exception {
     Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
         LOGGER.error("Uncaught error in thread: " + t, e);
         System.exit(1);
@@ -55,8 +59,10 @@ public class Orchestrator {
     System.exit(1);
   }
 
-  private static void simulateFailures() {
+  private static void simulateFailures() throws IOException {
     LOGGER.info("Starting orchestration.");
+    FileUtils.deleteDirectory(new File(Constants.Test.SHARED_STATE_BASE_PATH));
+
     ExecutorService executorService = Executors.newFixedThreadPool(3);
     long finishTimeMs = System.currentTimeMillis() + Duration.ofSeconds(Constants.Test.TOTAL_RUNTIME_SECONDS).toMillis() / 2;
 

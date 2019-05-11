@@ -55,9 +55,9 @@ public class Constants {
 
   public static class Test {
     public static final int EXECUTION_ID = 0;
-    public static final int TOTAL_RUNTIME_SECONDS = 1800;
-    public static final int MIN_RUNTIME_SECONDS = 120;
-    public static final int MAX_RUNTIME_SECONDS = 300;
+    public static final int TOTAL_RUNTIME_SECONDS = 3600;
+    public static final int MIN_RUNTIME_SECONDS = 600;
+    public static final int MAX_RUNTIME_SECONDS = 900;
     public static final int INTERVAL_BETWEEN_RESTART_SECONDS = 5;
 
     public static final int NUM_CONTAINERS = 2; // job.container.count
@@ -67,7 +67,7 @@ public class Constants {
     public static final int TASK_FLUSH_INTERVAL = 1000;
     public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 
-    private static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/prateekm-samza/state";
+    public static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/prateekm-samza/state";
 
     private static final String CHECKPOINTS_BASE_PATH = "checkpoints";
     private static final String CONSUMER_PORTS_BASE_PATH = "ports";
