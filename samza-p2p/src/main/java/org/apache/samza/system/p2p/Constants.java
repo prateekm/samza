@@ -67,7 +67,7 @@ public class Constants {
     public static final int TASK_FLUSH_INTERVAL = 1000;
     public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 
-    public static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/prateekm-samza/state";
+    public static final String SHARED_STATE_BASE_PATH = "/Users/prateekm/code/work/prateekm-samza/state";
 
     private static final String CHECKPOINTS_BASE_PATH = "checkpoints";
     private static final String CONSUMER_PORTS_BASE_PATH = "ports";

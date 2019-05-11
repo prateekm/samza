@@ -19,8 +19,10 @@
 package org.apache.samza.system.p2p;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 
 import java.util.List;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.samza.SamzaException;
 import org.apache.samza.system.IncomingMessageEnvelope;
 import org.apache.samza.system.SystemStreamPartition;
@@ -43,9 +45,11 @@ public class SinkTask {
     this.jobInfo = jobInfo;
     this.commitThread = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
+          String taskId = taskName.split("\\s")[1];
+          String spacer = Strings.repeat("\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t", Integer.valueOf(taskId));
           String currentLastReceivedOffset = this.lastReceivedOffset;
           if (currentLastReceivedOffset != null) {
-            LOGGER.info("Writing checkpoint file for task: {} with offset: {}", taskName, currentLastReceivedOffset);
+            LOGGER.info("Task: {} Checkpoint: {} {}", taskName, spacer, currentLastReceivedOffset);
             try {
               String checkpoint = this.ssp.toString() + ":" + currentLastReceivedOffset;
               Util.writeFile(Constants.Test.getTaskCheckpointPath(taskName), checkpoint);

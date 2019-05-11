@@ -224,22 +224,12 @@ public class P2PSystemProducer implements SystemProducer {
      * network or buffering several messages in memory. // TODO maybe not that bad now since we only need to lock when creating new iterator?
      */
     Lock consumerReadLock = consumerOffsetAndPQReadWriteLocks.get(destinationConsumerId).readLock();
+    ProducerOffset offset = this.nextOffset.get();
     try {
       consumerReadLock.lock(); // has to be before next offset get, not just queue append
-      ProducerOffset offset = this.nextOffset.get();
       while (!this.nextOffset.compareAndSet(offset, offset.nextOffset())) {
         offset = this.nextOffset.get();
       }
-
-      final ProducerOffset effectivelyFinalOffset = offset;
-      sspLastSentOffset.compute(destinationSSP, (ssp, currentOffset) -> {
-        if (currentOffset == null) return effectivelyFinalOffset;
-        if (effectivelyFinalOffset.compareTo(currentOffset) > 0) {
-          return effectivelyFinalOffset;
-        } else {
-          return currentOffset;
-        }
-      });
 
       if (offset.getMessageId() % 1000 == 0) {
         LOGGER.debug("Persisting message with offset: {} for Consumer: {}", offset, destinationConsumerId);
@@ -255,6 +245,16 @@ public class P2PSystemProducer implements SystemProducer {
     } finally {
       consumerReadLock.unlock();
     }
+
+    final ProducerOffset finalOffset = offset;
+    sspLastSentOffset.compute(destinationSSP, (ssp, currentOffset) -> {
+      if (currentOffset == null) return finalOffset;
+      if (finalOffset.compareTo(currentOffset) > 0) {
+        return finalOffset;
+      } else {
+        return currentOffset;
+      }
+    });
   }
 
   @Override
