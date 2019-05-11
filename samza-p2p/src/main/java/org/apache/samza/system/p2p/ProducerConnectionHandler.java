@@ -30,16 +30,16 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   private final Lock writeLock;
   private Channel channel;
 
-  private volatile int numMessagesSent = 0; // TODO add gauge, THREAD SAFE?
-  private volatile PersistentQueueIterator currentIterator; // TODO THREAD SAFE?
-  private volatile byte[] lastSentOffset = ProducerOffset.MIN_VALUE.getBytes(); // TODO THREAD SAFE?
+  private int numMessagesSent = 0; // TODO THREAD SAFE?
+  private PersistentQueueIterator currentIterator; // TODO THREAD SAFE?
+  private byte[] lastSentOffset = ProducerOffset.toBytes(ProducerOffset.MIN_VALUE); // TODO THREAD SAFE?
 
   ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, Lock writeLock, Channel channel) {
     this.producerId = producerId;
     this.consumerId = consumerId;
     this.persistentQueue = persistentQueue;
     this.writeLock = writeLock;
-    this.channel = channel; // TODO only safe if this is first outgoing handler in chain
+    this.channel = channel;
 
     LOGGER.debug("SENDING HANDSHAKE {}", channel);
     // Synchronize with the consumer on connection establishment. Send producerId to consumer to identify self.
@@ -62,14 +62,14 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     while (channel.isWritable() && channel.isActive() && hasData()) {
       LOGGER.debug("SEND DATA {}", channel);
       byte[] data = getData();
-      writeData(data) // todo does isWritable implies can write the entire byte array or can block here?
-          .addListener(future -> {
-              if (!future.isSuccess()) { // todo maybe not necessary to handle error here?
-                LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
-                    consumerId, producerId, future.cause());
-                channel.close();
-              }
-            });
+      // todo does isWritable implies can write the entire byte array or can block here?
+      writeData(data).addListener(future -> {
+          if (!future.isSuccess()) { // todo maybe not necessary to handle error here?
+            LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
+                consumerId, producerId, future.cause());
+            channel.close();
+          }
+        });
       sentData = true;
     }
     // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
@@ -84,11 +84,11 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     if (this.currentIterator != null && this.currentIterator.hasNext()) {
       return true;
     } else { // maybe reached end of previous iterator, recreate
-      ProducerOffset startingOffset = new ProducerOffset(this.lastSentOffset).nextOffset();
-      LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
       if (this.currentIterator != null)  {
         this.currentIterator.close();
       }
+      byte[] startingOffset = ProducerOffset.nextOffset(this.lastSentOffset); // TODO avoid frombytes and to bytes
+      LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
       try {
         writeLock.lock();
         this.currentIterator = this.persistentQueue.readFrom(startingOffset);
@@ -109,10 +109,10 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     this.numMessagesSent++; // non atomic ok for now
     if (this.numMessagesSent % 1000 == 0 && LOGGER.isDebugEnabled()) {
       LOGGER.debug("Sending data for offset: {} to Consumer: {} from Producer: {}",
-          new ProducerOffset(storedOffset), consumerId, producerId);
+          ProducerOffset.toString(storedOffset), consumerId, producerId);
     } else if (LOGGER.isTraceEnabled()) {
       LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
-          new ProducerOffset(storedOffset), consumerId, producerId);
+          ProducerOffset.toString(storedOffset), consumerId, producerId);
     }
 
     ByteBuffer buffer = ByteBuffer.allocate(4 + storedOffset.length + payload.length);// TODO use composite buf
@@ -139,7 +139,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
 
   @Override
   public void channelRead0(ChannelHandlerContext ctx, Object msg) {
-    LOGGER.debug("CHANNEL READ UNEXPECTED {} {}", channel, msg);
+    LOGGER.error("CHANNEL READ UNEXPECTED {} {}", channel, msg);
   }
 
   @Override

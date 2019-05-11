@@ -23,20 +23,14 @@ import com.google.common.primitives.Longs;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-public class ProducerOffset implements Comparable<ProducerOffset> {
+// TODO make methods static, bytes lazy, avoid allocs
+public class ProducerOffset {
   public static final int NUM_BYTES = 16;
   public static final ProducerOffset MIN_VALUE = new ProducerOffset(0, 0);
   private final long[] longs;
-  private final byte[] bytes;
 
   public ProducerOffset(long epoch, long mid) {
     this.longs = new long[] {epoch, mid};
-    this.bytes = toBytes(new long[] {epoch, mid});
-  }
-
-  public ProducerOffset(byte[] bytes) {
-    this.bytes = bytes;
-    this.longs = toLongs(bytes);
   }
 
   public ProducerOffset(String offset) {
@@ -46,7 +40,10 @@ public class ProducerOffset implements Comparable<ProducerOffset> {
       longs[i] = Long.valueOf(parts[i].trim());
     }
     this.longs = longs;
-    this.bytes = toBytes(longs);
+  }
+
+  private ProducerOffset(byte[] bytes) {
+    this.longs = toLongs(bytes);
   }
 
   public long getEpoch() {
@@ -57,16 +54,16 @@ public class ProducerOffset implements Comparable<ProducerOffset> {
     return longs[1];
   }
 
-  public byte[] getBytes() {
-    // maybe make returned array immutable
-    return this.bytes;
-  }
-
   /**
    * Returns a new instance, does not mutate current.
    */
-  public ProducerOffset nextOffset() {
-    return new ProducerOffset(longs[0], longs[1] + 1);
+  public static ProducerOffset nextOffset(ProducerOffset offset) {
+    return new ProducerOffset(offset.longs[0], offset.longs[1] + 1);
+  }
+
+  public static byte[] nextOffset(byte[] offset) {
+    // todo implement native increment
+    return ProducerOffset.toBytes(ProducerOffset.nextOffset(new ProducerOffset(offset)));
   }
 
   @Override
@@ -82,15 +79,19 @@ public class ProducerOffset implements Comparable<ProducerOffset> {
     return Arrays.hashCode(longs);
   }
 
-  @Override
-  public int compareTo(ProducerOffset other) {
-    if (other == null) throw new IllegalArgumentException();
-    if (this == other) return 0;
-    if (this.longs[0] != other.longs[0]) {
-      return Long.compare(this.longs[0], other.longs[0]);
+  public static int compareTo(ProducerOffset first, ProducerOffset second) {
+    if (second == null) throw new IllegalArgumentException();
+    if (first == second) return 0;
+    if (first.longs[0] != second.longs[0]) {
+      return Long.compare(first.longs[0], second.longs[0]);
     } else {
-      return Long.compare(this.longs[1], other.longs[1]);
+      return Long.compare(first.longs[1], second.longs[1]);
     }
+  }
+
+  public static int compareTo(byte[] first, byte[] second) {
+    // todo implement native compareTo
+    return ProducerOffset.compareTo(new ProducerOffset(first), new ProducerOffset(second));
   }
 
   @Override
@@ -98,12 +99,21 @@ public class ProducerOffset implements Comparable<ProducerOffset> {
     return Longs.join("-", longs);
   }
 
-  private byte[] toBytes(long[] longs) {
-    ByteBuffer buffer = ByteBuffer.allocate(8 * longs.length);
-    for (long val : longs) {
+  public static String toString(byte[] offset) {
+    // todo implement native toString
+    return new ProducerOffset(offset).toString();
+  }
+
+  public static byte[] toBytes(ProducerOffset offset) {
+    ByteBuffer buffer = ByteBuffer.allocate(8 * offset.longs.length);
+    for (long val : offset.longs) {
       buffer.putLong(val);
     }
     return buffer.array();
+  }
+
+  public static ProducerOffset fromBytes(byte[] offset) {
+    return new ProducerOffset(offset);
   }
 
   private long[] toLongs(byte[] bytes) {

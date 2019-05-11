@@ -44,9 +44,9 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   }
 
   @Override
-  public void append(ProducerOffset id, byte[] message) throws IOException {
+  public void append(byte[] id, byte[] message) throws IOException {
     try {
-      db.put(id.getBytes(), message);
+      db.put(id, message);
     } catch (RocksDBException e) {
       throw new IOException(String.format("Error appending data to db for queue: %s", name), e);
     }
@@ -62,10 +62,10 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   }
 
   @Override
-  public PersistentQueueIterator readFrom(ProducerOffset startingId) {
+  public PersistentQueueIterator readFrom(byte[] startingId) {
     RocksIterator rocksIterator = db.newIterator();
     if (startingId != null) {
-      rocksIterator.seek(startingId.getBytes());
+      rocksIterator.seek(startingId);
     } else {
       rocksIterator.seekToFirst();
     }
@@ -73,19 +73,23 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   }
 
   @Override
-  public void deleteUpto(ProducerOffset endId) throws IOException {
+  public void deleteUpto(byte[] endId) throws IOException {
     // TODO issues with concurrent access / non-existent endId?
     try {
       RocksIterator iterator = db.newIterator();
       iterator.seekToFirst();
       if (iterator.isValid()) {
-        ProducerOffset startingId = new ProducerOffset(iterator.key());
+        byte[] startingId = iterator.key();
         iterator.close();
-        if (startingId.compareTo(endId) < 0) {
-          LOGGER.trace("Deleting data from startingId: {} to endId: {}", startingId, endId);
-          db.deleteRange(startingId.getBytes(), endId.getBytes());
+        if (ProducerOffset.compareTo(startingId, endId) < 0) {
+          if (LOGGER.isTraceEnabled()) {
+            LOGGER.trace("Deleting data from startingId: {} to endId: {}", ProducerOffset.toString(startingId), endId);
+          }
+          db.deleteRange(startingId, endId);
         } else {
-          LOGGER.trace("Unexpectedly found startingId: {} to be greater than endId: {}", startingId, endId);
+          if (LOGGER.isTraceEnabled()) {
+            LOGGER.trace("Unexpectedly found startingId: {} to be greater than endId: {}", ProducerOffset.toString(startingId), endId);
+          }
         }
       } else {
         iterator.close();

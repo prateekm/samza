@@ -69,7 +69,7 @@ class ConsumerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     byte[] producerOffsetBytes = new byte[ProducerOffset.NUM_BYTES];
     message.get(producerOffsetBytes);
 
-    ProducerOffset producerOffset = new ProducerOffset(producerOffsetBytes);
+    ProducerOffset producerOffset = ProducerOffset.fromBytes(producerOffsetBytes);
     if (numMessagesReceived % 1000 == 0) {
       LOGGER.debug("Received write request from producer: {} with offset: {} in Consumer: {}",
           producerId, producerOffset, consumerId);

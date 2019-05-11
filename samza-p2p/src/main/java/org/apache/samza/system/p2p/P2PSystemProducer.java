@@ -225,7 +225,7 @@ public class P2PSystemProducer implements SystemProducer {
     ProducerOffset offset = this.nextOffset.get();
     try {
       consumerReadLock.lock(); // has to be before next offset get, not just queue append
-      while (!this.nextOffset.compareAndSet(offset, offset.nextOffset())) {
+      while (!this.nextOffset.compareAndSet(offset, ProducerOffset.nextOffset(offset))) {
         offset = this.nextOffset.get();
       }
 
@@ -236,7 +236,7 @@ public class P2PSystemProducer implements SystemProducer {
       }
 
       try {
-        persistentQueues.get(destinationConsumerId).append(offset, buffer.array());
+        persistentQueues.get(destinationConsumerId).append(ProducerOffset.toBytes(offset), buffer.array());
       } catch (Exception e) {
         throw new SamzaException(String.format("Error appending data for offset: %s to the queue.", offset), e);
       }
@@ -247,7 +247,7 @@ public class P2PSystemProducer implements SystemProducer {
     final ProducerOffset finalOffset = offset;
     sspLastSentOffset.compute(destinationSSP, (ssp, currentOffset) -> {
       if (currentOffset == null) return finalOffset;
-      if (finalOffset.compareTo(currentOffset) > 0) {
+      if (ProducerOffset.compareTo(finalOffset, currentOffset) > 0) {
         return finalOffset;
       } else {
         return currentOffset;
@@ -280,7 +280,7 @@ public class P2PSystemProducer implements SystemProducer {
         ProducerOffset lastTaskCheckpointedOffset = e.getValue();
         ProducerOffset lastTaskSentOffset = currentLastTaskSentOffsets.get(ssp);
         if (lastTaskSentOffset != null
-            && lastTaskSentOffset.compareTo(lastTaskCheckpointedOffset) > 0) {
+            && ProducerOffset.compareTo(lastTaskSentOffset, lastTaskCheckpointedOffset) > 0) {
           LOGGER.debug("Blocking flush since SSP: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
               ssp, lastTaskSentOffset, lastTaskCheckpointedOffset);
           isUpToDate = false;
@@ -300,7 +300,7 @@ public class P2PSystemProducer implements SystemProducer {
     for (Map.Entry<String, PersistentQueue> entry : persistentQueues.entrySet()) {
       String queueName = entry.getKey();
       try {
-        entry.getValue().deleteUpto(currentMinCheckpointedOffset);
+        entry.getValue().deleteUpto(ProducerOffset.toBytes(currentMinCheckpointedOffset));
       } catch (IOException e) {
         throw new SamzaException(
             String.format("Error cleaning up persistent queue: %s for data up to committed offset: %s.",
@@ -378,7 +378,7 @@ public class P2PSystemProducer implements SystemProducer {
 
   private ProducerOffset getMinCheckpointedOffset() {
     return sspLastCheckpointedOffset.values().stream() // first filter the dummy value (hasBeenUpdatedOnce)
-        .filter(v -> v.compareTo(ProducerOffset.MIN_VALUE) > 0)
+        .filter(v -> ProducerOffset.compareTo(v, ProducerOffset.MIN_VALUE) > 0)
         .min(ProducerOffset::compareTo)
         .orElse(ProducerOffset.MIN_VALUE);
   }

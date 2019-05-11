@@ -22,9 +22,9 @@ import java.io.IOException;
 import org.apache.samza.system.p2p.ProducerOffset;
 
 public interface PersistentQueue {
-  void append(ProducerOffset id, byte[] message) throws IOException;
+  void append(byte[] id, byte[] message) throws IOException;
   void flush() throws IOException;
-  PersistentQueueIterator readFrom(ProducerOffset startingId);
-  void deleteUpto(ProducerOffset endId) throws IOException;
+  PersistentQueueIterator readFrom(byte[] startingId);
+  void deleteUpto(byte[] endId) throws IOException;
   void close();
 }
