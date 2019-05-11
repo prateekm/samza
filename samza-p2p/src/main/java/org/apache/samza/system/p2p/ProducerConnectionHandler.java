@@ -41,48 +41,46 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     this.writeLock = writeLock;
     this.channel = channel; // TODO only safe if this is first outgoing handler in chain
 
-    LOGGER.debug("SENDING HANDSHAKE {}", channel.toString());
+    LOGGER.debug("SENDING HANDSHAKE {}", channel);
     // Synchronize with the consumer on connection establishment. Send producerId to consumer to identify self.
     ByteBuffer buffer = ByteBuffer.allocate(4 + 4);
     buffer.putInt(Constants.OPCODE_SYNC);
     buffer.putInt(producerId);
     channel.writeAndFlush(buffer.array()).addListener(f -> {
-      if (f.isSuccess()) {
-        // Start sending messages
-        sendData(); // must not use context
-      } else {
+      if (!f.isSuccess()) {
         LOGGER.error("Error sending sync message to Consumer: {} in Producer: {}. Closing channel.", consumerId, producerId);
         channel.close();
       }
     });
+
+    CompletableFuture.runAsync(this::loopSend, EXECUTOR);
   }
 
-  private void sendData() {
-    LOGGER.debug("SEND DATA {}", channel.toString());
-    if (hasData() && channel.isActive() && channel.isWritable()) {
-      LOGGER.debug("SEND DATA TRUE {}", channel.toString());
-      CompletableFuture
-          .supplyAsync(this::getData, EXECUTOR) // fetch data and send it on a different thread
-          .thenApply(data -> writeData(data)
-              .addListener(future -> { // todo excessive context / syscall overhead in doing this per message? (runs on netty thread, requries flush to complete future)
-                if (!future.isSuccess()) { // todo maybe not necessary to handle error here?
-                  LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
-                      consumerId, producerId, future.cause());
-                  channel.close();
-                }
-              }))
-          .thenAccept(f -> sendData()); // re-queues next send if still writable
-    } else {
-      // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
-      // note: only sent if no data to send
-      writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT)); // TODO need sync? causes blocking operation exception
-      // retry sending again later // TODO schedule on the event loop? http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#24.0
-      P2PSystemProducer.EVENT_LOOP_GROUP.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
+  private void loopSend() {
+    LOGGER.debug("LOOP SEND DATA {}", channel);
+    boolean sentData = false;
+    while (channel.isWritable() && channel.isActive() && hasData()) {
+      LOGGER.debug("SEND DATA {}", channel);
+      byte[] data = getData();
+      writeData(data) // todo does isWritable implies can write the entire byte array or can block here?
+          .addListener(future -> {
+              if (!future.isSuccess()) { // todo maybe not necessary to handle error here?
+                LOGGER.error("Error in connection to Consumer: {} in Producer: {}. Closing channel.",
+                    consumerId, producerId, future.cause());
+                channel.close();
+              }
+            });
+      sentData = true;
     }
+    // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
+    if (!sentData) {
+      writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT));
+    }
+    P2PSystemProducer.EVENT_LOOP_GROUP.schedule(this::loopSend, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
   }
 
   private boolean hasData() {
-    LOGGER.debug("HAS DATA {}", channel.toString());
+    LOGGER.debug("HAS DATA {}", channel);
     if (this.currentIterator != null && this.currentIterator.hasNext()) {
       return true;
     } else { // maybe reached end of previous iterator, recreate
@@ -102,7 +100,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   }
 
   private byte[] getData() {
-    LOGGER.debug("GET DATA {}", channel.toString());
+    LOGGER.debug("GET DATA {}", channel);
     Pair<byte[], byte[]> entry = this.currentIterator.next();
     byte[] storedOffset = entry.getKey();
     byte[] payload = entry.getValue();
@@ -118,31 +116,30 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     this.lastSentOffset = producerOffset;
 
     ByteBuffer buffer = ByteBuffer.allocate(4 + storedOffset.length + payload.length);// TODO use composite buf
-    buffer.putInt(Constants.OPCODE_WRITE);
+    buffer.putInt(Constants.OPCODE_WRITE); // use prealloc array for opcode for composite buf
     buffer.put(storedOffset);
     buffer.put(payload);
     return buffer.array();
   }
 
   private ChannelFuture writeData(byte[] data) {
-    LOGGER.trace("WRITE DATA {}", channel.toString());
-    // todo flush not necessary every time, batch flushes?
-    return channel.writeAndFlush(data);
+    LOGGER.trace("WRITE DATA {}", channel);
+    return channel.writeAndFlush(data); // flushed batched by FlushConsolidationHandler
   }
 
   @Override
   public void channelActive(ChannelHandlerContext context) {
-    LOGGER.debug("CHANNEL ACTIVE {}", channel.toString());
+    LOGGER.debug("CHANNEL ACTIVE {}", channel);
   }
 
   @Override
   public void channelInactive(ChannelHandlerContext ctx) {
-    LOGGER.debug("CHANNEL INACTIVE {}", channel.toString());
+    LOGGER.debug("CHANNEL INACTIVE {}", channel);
   }
 
   @Override
   public void channelRead0(ChannelHandlerContext ctx, Object msg) {
-    LOGGER.debug("CHANNEL READ UNEXPECTED {} {}", channel.toString(), msg);
+    LOGGER.debug("CHANNEL READ UNEXPECTED {} {}", channel, msg);
   }
 
   @Override
@@ -151,5 +148,4 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
         consumerId, producerId, cause);
     ctx.close();
   }
-
 }

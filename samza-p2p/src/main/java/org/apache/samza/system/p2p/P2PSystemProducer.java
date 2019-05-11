@@ -42,8 +42,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -180,7 +178,7 @@ public class P2PSystemProducer implements SystemProducer {
 
     int payloadLength = (4 + system.length) + (4 + stream.length) + 4 + (4 + key.length) + (4 + message.length);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[payloadLength]);
-    buffer // TODO verify need message header / protocol version?
+    buffer // TODO verify need message header / protocol version / length field
         .put(Ints.toByteArray(system.length)).put(system) // TODO compact ssp representation
         .put(Ints.toByteArray(stream.length)).put(stream)
         .put(Ints.toByteArray(partition))
