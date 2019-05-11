@@ -33,10 +33,10 @@ import io.netty.handler.codec.bytes.ByteArrayEncoder;
 import io.netty.handler.codec.compression.SnappyFrameEncoder;
 import io.netty.handler.flush.FlushConsolidationHandler;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.file.NoSuchFileException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +47,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import org.apache.commons.io.FileUtils;
 import org.apache.samza.Partition;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
@@ -367,7 +368,10 @@ public class P2PSystemProducer implements SystemProducer {
         throw new RuntimeException(e);
       }
     }
-    return new AtomicReference<>(new ProducerOffset(currentEpoch, 0));
+
+    ProducerOffset offset = new ProducerOffset(currentEpoch, 0);
+    LOGGER.info("New initial offset: {} in Producer: {}", offset, producerId);
+    return new AtomicReference<>(offset);
   }
 
   private ProducerOffset getMaxCheckpointedOffset() {
@@ -413,12 +417,16 @@ public class P2PSystemProducer implements SystemProducer {
   private void initConsumerConnections() {
     try {
       for (int consumerId = 0; consumerId < numConsumers; consumerId++) {
+        String persistentQueueName = producerId + "-" + consumerId;
+
         try {
-          Util.rmrf(Constants.getPersistentQueueBasePath(String.valueOf(consumerId))); // clear old state first
-        } catch (NoSuchFileException e) { }
+          FileUtils.deleteDirectory(new File(Constants.getPersistentQueueBasePath(persistentQueueName))); // clear old state first
+        } catch (Exception e) {
+          LOGGER.error("Error clearing persistent queue for Consumer: {} in Producer: {}", consumerId, producerId, e);
+        }
 
         PersistentQueue persistentQueue =
-            persistentQueueFactory.getPersistentQueue(producerId + "-" + consumerId, config, metricsRegistry);
+            persistentQueueFactory.getPersistentQueue(persistentQueueName, config, metricsRegistry);
         persistentQueues.put(String.valueOf(consumerId), persistentQueue);
 
         doConnect(consumerId, persistentQueue);

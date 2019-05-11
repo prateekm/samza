@@ -47,7 +47,7 @@ public class Constants {
   public static final int OPCODE_HEARTBEAT = 3;
 
   private static final String STATE_BASE_PATH = "state";
-  private static final String PERSISTENT_QUEUE_BASE_PATH = "stores/producer";
+  private static final String PERSISTENT_QUEUE_BASE_PATH = "stores";
 
   public static String getPersistentQueueBasePath(String queueName) {
     return STATE_BASE_PATH + "/" + PERSISTENT_QUEUE_BASE_PATH + "/" + queueName;

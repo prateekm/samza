@@ -77,13 +77,6 @@ public class Util {
     Files.move(tempFile, filePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
   }
 
-  public static void rmrf(String path) throws IOException {
-    Files.walk(Paths.get(path))
-        .sorted(Comparator.reverseOrder())
-        .map(Path::toFile)
-        .forEach(File::delete);
-  }
-
   public static int toPositive(int number) {
     return number & 0x7fffffff;
   }
