@@ -32,7 +32,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
 
   private volatile int numMessagesSent = 0; // TODO add gauge, THREAD SAFE?
   private volatile PersistentQueueIterator currentIterator; // TODO THREAD SAFE?
-  private volatile ProducerOffset lastSentOffset = ProducerOffset.MIN_VALUE; // TODO THREAD SAFE?
+  private volatile byte[] lastSentOffset = ProducerOffset.MIN_VALUE.getBytes(); // TODO THREAD SAFE?
 
   ProducerConnectionHandler(int producerId, int consumerId, PersistentQueue persistentQueue, Lock writeLock, Channel channel) {
     this.producerId = producerId;
@@ -53,10 +53,10 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
       }
     });
 
-    CompletableFuture.runAsync(this::loopSend, EXECUTOR);
+    CompletableFuture.runAsync(this::sendData, EXECUTOR);
   }
 
-  private void loopSend() {
+  private void sendData() {
     LOGGER.debug("LOOP SEND DATA {}", channel);
     boolean sentData = false;
     while (channel.isWritable() && channel.isActive() && hasData()) {
@@ -76,7 +76,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     if (!sentData) {
       writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT));
     }
-    P2PSystemProducer.EVENT_LOOP_GROUP.schedule(this::loopSend, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
+    P2PSystemProducer.EVENT_LOOP_GROUP.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
   }
 
   private boolean hasData() {
@@ -84,7 +84,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     if (this.currentIterator != null && this.currentIterator.hasNext()) {
       return true;
     } else { // maybe reached end of previous iterator, recreate
-      ProducerOffset startingOffset = this.lastSentOffset.nextOffset();
+      ProducerOffset startingOffset = new ProducerOffset(this.lastSentOffset).nextOffset();
       LOGGER.debug("Next starting offset: {} for Producer: {}", startingOffset, producerId);
       if (this.currentIterator != null)  {
         this.currentIterator.close();
@@ -104,16 +104,16 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     Pair<byte[], byte[]> entry = this.currentIterator.next();
     byte[] storedOffset = entry.getKey();
     byte[] payload = entry.getValue();
-    this.numMessagesSent++;
-    ProducerOffset producerOffset = new ProducerOffset(storedOffset);
-    if (this.numMessagesSent % 1000 == 0) {
+    this.lastSentOffset = storedOffset;
+
+    this.numMessagesSent++; // non atomic ok for now
+    if (this.numMessagesSent % 1000 == 0 && LOGGER.isDebugEnabled()) {
       LOGGER.debug("Sending data for offset: {} to Consumer: {} from Producer: {}",
-          producerOffset, consumerId, producerId);
-    } else {
+          new ProducerOffset(storedOffset), consumerId, producerId);
+    } else if (LOGGER.isTraceEnabled()) {
       LOGGER.trace("Sending data for offset: {} to Consumer: {} from Producer: {}",
-          producerOffset, consumerId, producerId);
+          new ProducerOffset(storedOffset), consumerId, producerId);
     }
-    this.lastSentOffset = producerOffset;
 
     ByteBuffer buffer = ByteBuffer.allocate(4 + storedOffset.length + payload.length);// TODO use composite buf
     buffer.putInt(Constants.OPCODE_WRITE); // use prealloc array for opcode for composite buf
