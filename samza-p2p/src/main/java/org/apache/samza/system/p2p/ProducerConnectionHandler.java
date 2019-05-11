@@ -10,9 +10,8 @@ import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import org.apache.commons.lang3.tuple.Pair;
@@ -23,7 +22,7 @@ import org.slf4j.LoggerFactory;
 
 class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   private static final Logger LOGGER = LoggerFactory.getLogger(ProducerConnectionHandler.class);
-  private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(4, // todo configure. use epoll event loop group?
+  private static final ScheduledExecutorService EXECUTOR = Executors.newScheduledThreadPool(4, // todo configure. use epoll event loop group?
       new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Data Sender Thread-%d").build());
 
   private final int producerId;
@@ -45,7 +44,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
     this.channel = channel;
     this.writeCompletionListener = new WriteCompletionListener<>();
 
-    LOGGER.debug("SENDING HANDSHAKE {}", channel);
+    LOGGER.debug("Sending handshake in producer: {} for consumer: {}", producerId, consumerId);
     // Synchronize with the consumer on connection establishment. Send producerId to consumer to identify self.
     ByteBuffer buffer = ByteBuffer.allocate(4 + 4);
     buffer.putInt(Constants.OPCODE_SYNC);
@@ -57,7 +56,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
       }
     });
 
-    CompletableFuture.runAsync(this::sendData, EXECUTOR);
+    EXECUTOR.submit(this::sendData);
   }
 
   private void sendData() {
@@ -75,11 +74,11 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
       writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT));
     }
     LOGGER.debug("Scheduling send for later in producer: {} for: consumer {}", producerId, consumerId);
-    P2PSystemProducer.EVENT_LOOP_GROUP.schedule(() -> EXECUTOR.submit(this::sendData), Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
+    EXECUTOR.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
   }
 
   private boolean hasData() {
-    LOGGER.debug("Has data in producer: {} for consumer: {}", producerId, consumerId);
+    LOGGER.debug("In has data in producer: {} for consumer: {}", producerId, consumerId);
     if (this.currentIterator != null && this.currentIterator.hasNext()) {
       return true;
     } else { // maybe reached end of previous iterator, recreate

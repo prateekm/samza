@@ -431,17 +431,12 @@ public class P2PSystemProducer implements SystemProducer {
   private void doConnect(int consumerId, PersistentQueue persistentQueue) {
     // read the consumer port from metadata store every time.
     InetSocketAddress consumerAddress = consumerLocalityManager.getConsumerAddress(String.valueOf(consumerId));
-    LOGGER.info("Got address: {} for Consumer: {}", consumerAddress, consumerId);
+    LOGGER.info("Got address: {} for Consumer: {} in Producer: {}", consumerAddress, consumerId, producerId);
 
     ChannelFuture cf = bootstrap.connect(consumerAddress);
 
     cf.addListener((ChannelFuture f) -> {
-      if (!f.isSuccess() && !shutdown) {
-        LOGGER.error("Error connecting to Consumer: {} in Producer: {}. Retrying", consumerId, producerId, f.cause());
-        f.channel().eventLoop()
-            .schedule(() -> doConnect(consumerId, persistentQueue),
-                Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL, TimeUnit.MILLISECONDS);
-      } else {
+      if (f.isSuccess()) {
         LOGGER.info("Connected to Consumer: {} in Producer: {}.", consumerId, producerId);
         Lock writeLock = consumerOffsetAndPQReadWriteLocks.get(String.valueOf(consumerId)).writeLock();
         cf.channel().pipeline()
@@ -450,6 +445,7 @@ public class P2PSystemProducer implements SystemProducer {
     });
 
     cf.channel().closeFuture().addListener(f -> { // auto reconnect on close
+      // TODO assumes always close connection cleanly on error?
       if (!shutdown) {
         LOGGER.error("Channel closed to Consumer: {} in Producer: {}. Retrying", consumerId, producerId, f.cause());
         cf.channel().eventLoop().schedule(() -> doConnect(consumerId, persistentQueue),
