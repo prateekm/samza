@@ -31,6 +31,8 @@ import org.rocksdb.RocksIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.samza.system.p2p.Constants.WRITE_OPTIONS;
+
 public class RocksDBPersistentQueue implements PersistentQueue {
   private static final Logger LOGGER = LoggerFactory.getLogger(RocksDBPersistentQueue.class);
   private final String name;
@@ -46,7 +48,7 @@ public class RocksDBPersistentQueue implements PersistentQueue {
   @Override
   public void append(byte[] id, byte[] message) throws IOException {
     try {
-      db.put(id, message);
+      db.put(WRITE_OPTIONS, id, message);
     } catch (RocksDBException e) {
       throw new IOException(String.format("Error appending data to db for queue: %s", name), e);
     }
@@ -85,7 +87,7 @@ public class RocksDBPersistentQueue implements PersistentQueue {
           if (LOGGER.isTraceEnabled()) {
             LOGGER.trace("Deleting data from startingId: {} to endId: {}", ProducerOffset.toString(startingId), ProducerOffset.toString(endId));
           }
-          db.deleteRange(startingId, endId);
+          db.deleteRange(WRITE_OPTIONS, startingId, endId);
         } else {
           if (LOGGER.isTraceEnabled()) {
             LOGGER.trace("Unexpectedly found startingId: {} to be greater than endId: {}", ProducerOffset.toString(startingId), endId);

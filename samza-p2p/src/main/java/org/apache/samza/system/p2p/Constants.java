@@ -24,8 +24,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.samza.Partition;
 import org.apache.samza.system.SystemStreamPartition;
+import org.rocksdb.CompressionType;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
+import org.rocksdb.WriteOptions;
 
 public class Constants {
   public static final String P2P_SYSTEM_NAME = "p2p"; // hardcode to p2p
@@ -33,13 +35,16 @@ public class Constants {
 
   public static final int PRODUCER_CH_CONNECTION_RETRY_INTERVAL = 1000;
   public static final int PRODUCER_CH_CONNECTION_TIMEOUT = 1000;
-  public static final int PRODUCER_CH_SEND_INTERVAL = 100;
+  public static final int PRODUCER_CH_SEND_INTERVAL = 10;
   public static final int PRODUCER_CHECKPOINT_WATCHER_INTERVAL = 1000;
   public static final int PRODUCER_FLUSH_SLEEP_MS = 1000;
   public static final SystemStreamPartition CHECKPOINTS_READ_ONCE_DUMMY_KEY =
       new SystemStreamPartition("", "", new Partition(-1));
 
-  public static final Options DB_OPTIONS = new Options().setCreateIfMissing(true);
+  public static final Options DB_OPTIONS = new Options()
+      .setCreateIfMissing(true)
+      .setCompressionType(CompressionType.NO_COMPRESSION);
+  public static final WriteOptions WRITE_OPTIONS = new WriteOptions().setDisableWAL(true);
   public static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
 
   public static final int OPCODE_SYNC = 1;
@@ -56,8 +61,8 @@ public class Constants {
   public static class Test {
     public static final int EXECUTION_ID = 0;
     public static final int TOTAL_RUNTIME_SECONDS = 3600;
-    public static final int MIN_RUNTIME_SECONDS = 60;
-    public static final int MAX_RUNTIME_SECONDS = 90;
+    public static final int MIN_RUNTIME_SECONDS = 600;
+    public static final int MAX_RUNTIME_SECONDS = 900;
     public static final int INTERVAL_BETWEEN_RESTART_SECONDS = 5;
 
     public static final int NUM_CONTAINERS = 2; // job.container.count
@@ -67,7 +72,7 @@ public class Constants {
     public static final int TASK_FLUSH_INTERVAL = 1000;
     public static final int TASK_MAX_KEY_VALUE_LENGTH = 128;
 
-    public static final String SHARED_STATE_BASE_PATH = "/Users/prateekm/code/work/prateekm-samza/state";
+    public static final String SHARED_STATE_BASE_PATH = "/Users/pmaheshw/code/work/prateekm-samza/state";
 
     private static final String CHECKPOINTS_BASE_PATH = "checkpoints";
     private static final String CONSUMER_PORTS_BASE_PATH = "ports";
