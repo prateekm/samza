@@ -110,9 +110,9 @@ import org.slf4j.LoggerFactory;
 
     return getJobNodes().stream().map(n -> {
       JobConfig jobConfig = n.generateConfig(planJson);
-      MapConfig mapConfig = new MapConfig(jobConfig);
+      Map<String, String> mapConfig = new HashMap<>(jobConfig);
       mapConfig.put("p2p.input.stages", finalStageJson);
-      return new JobConfig(mapConfig);
+      return new JobConfig(new MapConfig(mapConfig));
     }).collect(Collectors.toList());
   }
 
