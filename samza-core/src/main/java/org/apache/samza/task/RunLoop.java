@@ -525,6 +525,11 @@ public class RunLoop implements Runnable, Throttleable {
      * Invoke commit. Run commit in thread pool if not the single thread mode.
      */
     private void commit() {
+      if (state.commitInFlight) {
+        state.needCommit = false;
+        return;
+      }
+
       state.startCommit();
       Runnable commitWorker = new Runnable() {
         @Override
@@ -719,7 +724,7 @@ public class RunLoop implements Runnable, Throttleable {
        * b) When task.async.commit is true and window, commit are not in progress.
        */
       if (needCommit) {
-        return (messagesInFlight.get() == 0 || isAsyncCommitEnabled) && !opInFlight;
+        return (messagesInFlight.get() == 0 || isAsyncCommitEnabled) && !(windowInFlight || schedulerInFlight);
       } else if (needWindow || needScheduler || endOfStream) {
         /*
          * A task is ready for window, scheduler or end-of-stream operation.
