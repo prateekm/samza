@@ -19,30 +19,16 @@
 package org.apache.samza.system.p2p;
 
 import com.google.common.primitives.Ints;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.LengthFieldPrepender;
-import io.netty.handler.codec.bytes.ByteArrayEncoder;
-import io.netty.handler.codec.compression.SnappyFrameEncoder;
-import io.netty.handler.flush.FlushConsolidationHandler;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -67,25 +53,18 @@ import org.slf4j.LoggerFactory;
 
 public class P2PSystemProducer implements SystemProducer {
   private static final Logger LOGGER = LoggerFactory.getLogger(P2PSystemProducer.class);
-  static final EventLoopGroup EVENT_LOOP_GROUP = new NioEventLoopGroup(4, // todo epoll event loop group?
-      new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Producer Netty ELG Thread-%d").build());
 
   private final String systemName;
   private final int producerId;
-  private final PersistentQueueFactory persistentQueueFactory;
-  private final CheckpointWatcher checkpointWatcher;
-  private final Config config;
-  private final MetricsRegistry metricsRegistry;
   private final JobInfo jobInfo;
+  private final CheckpointWatcher checkpointWatcher;
   private final ConsumerLocalityManager consumerLocalityManager;
-  private final int numConsumers;
-  private final Bootstrap bootstrap;
+  private final ProducerConnectionManager producerConnectionManager;
 
-  private final Map<String, PersistentQueue> persistentQueues;
+  private final ConcurrentMap<String, PersistentQueue> persistentQueues;
   private final Set<String> senderTasks;
-  private final ConcurrentHashMap<String, ReadWriteLock> consumerOffsetAndPQReadWriteLocks;
+  private final ConcurrentMap<String, ReadWriteLock> consumerOffsetAndPQReadWriteLocks;
   private volatile boolean shutdown = false;
-
 
   /**
    * Offsets are minted as atomic counters on each producer. Each message send (from any task to any p2p ssp)
@@ -119,22 +98,20 @@ public class P2PSystemProducer implements SystemProducer {
       Config config, MetricsRegistry metricsRegistry, JobInfo jobInfo) {
     this.systemName = systemName;
     this.producerId = producerId;
-    this.persistentQueueFactory = persistentQueueFactory;
-    this.checkpointWatcher = checkpointWatcherFactory.getCheckpointWatcher(config, jobInfo.getAllTasks(), metricsRegistry);
-    this.config = config;
-    this.metricsRegistry = metricsRegistry;
     this.jobInfo = jobInfo;
+    this.checkpointWatcher = checkpointWatcherFactory.getCheckpointWatcher(config, jobInfo.getAllTasks(), metricsRegistry);
     this.consumerLocalityManager = consumerLocalityManager;
-    this.numConsumers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
-
-    this.persistentQueues = new ConcurrentHashMap<>();
+    int numConsumers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
+    this.persistentQueues = createPersistentQueues(numConsumers, producerId, persistentQueueFactory, config, metricsRegistry);
     this.senderTasks = new ConcurrentSkipListSet<>();
     this.consumerOffsetAndPQReadWriteLocks = new ConcurrentHashMap<>();
 
     for (int i = 0; i < numConsumers; i++) {
       consumerOffsetAndPQReadWriteLocks.put(String.valueOf(i), new ReentrantReadWriteLock());
     }
-    this.bootstrap = createBootstrap();
+
+    this.producerConnectionManager = new ProducerConnectionManager(numConsumers, producerId, consumerLocalityManager,
+        persistentQueues, consumerOffsetAndPQReadWriteLocks, config, metricsRegistry);
   }
 
   @Override
@@ -144,9 +121,9 @@ public class P2PSystemProducer implements SystemProducer {
   public void start() {
     LOGGER.info("Starting P2PSystemProducer: {}", producerId);
     consumerLocalityManager.start();
-    checkpointWatcher.updatePeriodically(systemName, producerId, jobInfo, sspLastCheckpointedOffset);
+    checkpointWatcher.start(systemName, producerId, jobInfo, sspLastCheckpointedOffset);
     this.nextOffset = getInitialNextOffset();
-    initConsumerConnections();
+    producerConnectionManager.start();
     LOGGER.info("Started P2PSystemProducer: {}", producerId);
   }
 
@@ -154,7 +131,8 @@ public class P2PSystemProducer implements SystemProducer {
   public void stop() {
     LOGGER.info("Stopping P2PSystemProducer: {}", producerId);
     this.shutdown = true;
-    checkpointWatcher.close();
+    producerConnectionManager.stop();
+    checkpointWatcher.stop();
     persistentQueues.forEach((id, pq) -> pq.close());
     consumerLocalityManager.stop();
     LOGGER.info("Stopped P2PSystemProducer: {}", producerId);
@@ -281,8 +259,8 @@ public class P2PSystemProducer implements SystemProducer {
         ProducerOffset lastTaskSentOffset = currentLastTaskSentOffsets.get(ssp);
         if (lastTaskSentOffset != null
             && ProducerOffset.compareTo(lastTaskSentOffset, lastTaskCheckpointedOffset) > 0) {
-          LOGGER.debug("Blocking flush since SSP: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
-              ssp, lastTaskSentOffset, lastTaskCheckpointedOffset);
+          LOGGER.info("Blocking flush for task: {} since destination ssp: {} in Consumer: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
+              taskName, ssp, jobInfo.getConsumerFor(ssp.getPartition().getPartitionId()), lastTaskSentOffset, lastTaskCheckpointedOffset);
           isUpToDate = false;
           break;
         }
@@ -374,47 +352,9 @@ public class P2PSystemProducer implements SystemProducer {
     return new AtomicReference<>(offset);
   }
 
-  private ProducerOffset getMaxCheckpointedOffset() {
-    // guaranteed to contain at least the dummy value (hasBeenUpdatedOnce)
-    return sspLastCheckpointedOffset.values().stream().max(ProducerOffset::compareTo).get();
-  }
-
-  private ProducerOffset getMinCheckpointedOffset() {
-    return sspLastCheckpointedOffset.values().stream() // first filter the dummy value (hasBeenUpdatedOnce)
-        .filter(v -> ProducerOffset.compareTo(v, ProducerOffset.MIN_VALUE) > 0)
-        .min(ProducerOffset::compareTo)
-        .orElse(ProducerOffset.MIN_VALUE);
-  }
-
-  private Bootstrap createBootstrap() {
-    Bootstrap bootstrap = new Bootstrap();
-    bootstrap.group(EVENT_LOOP_GROUP)
-        // TODO use local channel for local consumer produce
-        .channel(NioSocketChannel.class) // todo use epoll socket channel?
-        .handler(new ChannelInitializer<SocketChannel>() {
-          @Override
-          protected void initChannel(SocketChannel ch) {
-            LOGGER.info("New channel initialized: {}", ch);
-            ch.pipeline()
-                .addLast("flushConsolidationHandler", new FlushConsolidationHandler(100, true)) // todo tune, stable? can block indefinitely if no new write?
-                .addLast("snappyCompressor", new SnappyFrameEncoder()) // TODO do not need compression per message. batch?
-                .addLast("lengthFieldPrepender", new LengthFieldPrepender(4))
-                .addLast("byteArrayEncoder", new ByteArrayEncoder());
-            // MessageAggregator
-            // Read/WriteTimeoutHandler?
-            // FlushConsolidationHandler
-            // IdleStateHandler
-            // https://github.com/spotify/netty-batch-flusher
-          }
-        })
-        .option(ChannelOption.TCP_NODELAY, true);
-        // todo need to tune write buffer watermark if already checking for writable?
-        // todo bootstrap.option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)?
-        // http://normanmaurer.me/presentations/2014-facebook-eng-netty/slides.html#15.0
-    return bootstrap;
-  }
-
-  private void initConsumerConnections() {
+  private ConcurrentMap<String, PersistentQueue> createPersistentQueues(int numConsumers, int producerId,
+      PersistentQueueFactory factory, Config config, MetricsRegistry metricsRegistry) {
+    ConcurrentMap<String, PersistentQueue> persistentQueues = new ConcurrentHashMap<>();
     try {
       for (int consumerId = 0; consumerId < numConsumers; consumerId++) {
         String persistentQueueName = producerId + "-" + consumerId;
@@ -426,39 +366,24 @@ public class P2PSystemProducer implements SystemProducer {
         }
 
         PersistentQueue persistentQueue =
-            persistentQueueFactory.getPersistentQueue(persistentQueueName, config, metricsRegistry);
+            factory.getPersistentQueue(persistentQueueName, config, metricsRegistry);
         persistentQueues.put(String.valueOf(consumerId), persistentQueue);
-
-        doConnect(consumerId, persistentQueue);
       }
+      return persistentQueues;
     } catch (Exception e) {
-      throw new SamzaException("Unable to initiate consumer connections", e);
+      throw new SamzaException("Unable to create persistent queues", e);
     }
   }
 
-  private void doConnect(int consumerId, PersistentQueue persistentQueue) {
-    // read the consumer port from metadata store every time.
-    InetSocketAddress consumerAddress = consumerLocalityManager.getConsumerAddress(String.valueOf(consumerId));
-    LOGGER.info("Got address: {} for Consumer: {} in Producer: {}", consumerAddress, consumerId, producerId);
+  private ProducerOffset getMaxCheckpointedOffset() {
+    // guaranteed to contain at least the dummy value (hasBeenUpdatedOnce)
+    return sspLastCheckpointedOffset.values().stream().max(ProducerOffset::compareTo).get();
+  }
 
-    ChannelFuture cf = bootstrap.connect(consumerAddress);
-
-    cf.addListener((ChannelFuture f) -> {
-      if (f.isSuccess()) {
-        LOGGER.info("Connected to Consumer: {} in Producer: {}.", consumerId, producerId);
-        Lock writeLock = consumerOffsetAndPQReadWriteLocks.get(String.valueOf(consumerId)).writeLock();
-        cf.channel().pipeline()
-            .addLast(new ProducerConnectionHandler(producerId, consumerId, persistentQueue, writeLock, cf.channel()));
-      }
-    });
-
-    cf.channel().closeFuture().addListener(f -> { // auto reconnect on close
-      // TODO assumes always close connection cleanly on error?
-      if (!shutdown) {
-        LOGGER.error("Channel closed to Consumer: {} in Producer: {}. Retrying", consumerId, producerId, f.cause());
-        cf.channel().eventLoop().schedule(() -> doConnect(consumerId, persistentQueue),
-            Constants.PRODUCER_CH_CONNECTION_RETRY_INTERVAL, TimeUnit.MILLISECONDS);
-      }
-    });
+  private ProducerOffset getMinCheckpointedOffset() {
+    return sspLastCheckpointedOffset.values().stream() // first filter the dummy value (hasBeenUpdatedOnce)
+        .filter(v -> ProducerOffset.compareTo(v, ProducerOffset.MIN_VALUE) > 0)
+        .min(ProducerOffset::compareTo)
+        .orElse(ProducerOffset.MIN_VALUE);
   }
 }

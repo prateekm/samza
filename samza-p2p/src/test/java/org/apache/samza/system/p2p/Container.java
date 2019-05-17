@@ -120,7 +120,7 @@ public class Container {
       }, "ContainerPollThread");
     pollThread.start();
 
-    consumer.start(); // blocks
+    consumer.start();
   }
 
   void stop() {

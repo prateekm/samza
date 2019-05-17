@@ -24,7 +24,7 @@ import org.apache.samza.system.p2p.ProducerOffset;
 import org.apache.samza.system.p2p.jobinfo.JobInfo;
 
 public interface CheckpointWatcher {
-  void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
+  void start(String systemName, int producerId, JobInfo jobInfo,
       ConcurrentMap<SystemStreamPartition, ProducerOffset> lastTaskCheckpointedOffsets);
-  void close();
+  void stop();
 }

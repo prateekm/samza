@@ -45,7 +45,7 @@ public class KCMWatcher implements CheckpointWatcher {
     this.allTasks = allTasks;
   }
 
-  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
+  public void start(String systemName, int producerId, JobInfo jobInfo,
       ConcurrentMap<SystemStreamPartition, ProducerOffset> lastTaskCheckpointedOffsets) {
     allTasks.forEach(checkpointManager::register);
     checkpointManager.start();
@@ -83,7 +83,7 @@ public class KCMWatcher implements CheckpointWatcher {
     watcherThread.start();
   }
 
-  public void close() {
+  public void stop() {
     this.shutdown = true;
     this.watcherThread.interrupt();
     checkpointManager.stop();

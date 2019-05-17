@@ -32,6 +32,11 @@ import org.rocksdb.WriteOptions;
 public class Constants {
   public static final String P2P_SYSTEM_NAME = "p2p"; // hardcode to p2p
   public static final String P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY = "p2p.input.num.partitions";
+  public static final String P2P_PRODUCER_NETTY_CHANNEL_TYPE_CONFIG_KEY = "p2p.producer.netty.channel.type"; // epoll, nio
+  public static final String P2P_PRODUCER_ELG_THREADS_CONFIG_KEY = "p2p.producer.netty.elg.threads";
+  public static final String P2P_PRODUCER_FLUSH_CONSOLIDATION_COUNT_CONFIG_KEY = "p2p.producer.flush.consolidation.count";
+  public static final String P2P_PRODUCER_WRITE_BUFFER_LOW_WATERMARK_BYTES_CONFIG_KEY = "p2p.producer.write.buffer.low.watermark.bytes";
+  public static final String P2P_PRODUCER_WRITE_BUFFER_HIGH_WATERMARK_BYTES_CONFIG_KEY = "p2p.producer.write.buffer.high.watermark.bytes";
 
   public static final int PRODUCER_CH_CONNECTION_RETRY_INTERVAL = 1000;
   public static final int PRODUCER_CH_CONNECTION_TIMEOUT = 1000;

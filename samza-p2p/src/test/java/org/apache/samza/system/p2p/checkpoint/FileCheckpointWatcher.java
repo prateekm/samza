@@ -37,7 +37,7 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
   private volatile boolean shutdown = false;
 
   @Override
-  public void updatePeriodically(String systemName, int producerId, JobInfo jobInfo,
+  public void start(String systemName, int producerId, JobInfo jobInfo,
       ConcurrentMap<SystemStreamPartition, ProducerOffset> lastTaskCheckpointedOffsets) {
     this.watcher = new Thread(() -> {
         while (!shutdown && !Thread.currentThread().isInterrupted()) {
@@ -78,7 +78,7 @@ public class FileCheckpointWatcher implements CheckpointWatcher {
   }
 
   @Override
-  public void close() {
+  public void stop() {
     this.shutdown = true;
     this.watcher.interrupt();
   }

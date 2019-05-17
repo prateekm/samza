@@ -60,21 +60,26 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
   }
 
   private void sendData() {
-    LOGGER.debug("In send data loop in producer: {} for consumer: {}", producerId, consumerId);
-    boolean sentData = false;
-    while (channel.isWritable() && channel.isActive() && hasData()) {
-      LOGGER.debug("Sending data in producer: {} for consumer: {}", producerId, consumerId);
-      byte[] data = getData();
-      // todo does isWritable implies can write the entire byte array or can block here?
-      writeData(data).addListener(writeCompletionListener);  // todo maybe not necessary to handle error here?
-      sentData = true;
+    try {
+      LOGGER.debug("In send data loop in producer: {} for consumer: {}", producerId, consumerId);
+      boolean sentData = false;
+      while (channel.isWritable() && channel.isActive() && hasData()) {
+        LOGGER.debug("Sending data in producer: {} for consumer: {}", producerId, consumerId);
+        byte[] data = getData();
+        // todo does isWritable implies can write the entire byte array or can block here?
+        writeData(data).addListener(writeCompletionListener);  // todo maybe not necessary to handle error here?
+        sentData = true;
+      }
+      // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
+      if (!sentData) {
+        writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT));
+      }
+      LOGGER.debug("Scheduling send for later in producer: {} for: consumer {}", producerId, consumerId);
+      EXECUTOR.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
+    } catch (Exception e) {
+      LOGGER.error("Error sending data to Consumer: {} in Producer: {}. Closing channel.", consumerId, producerId, e);
+      channel.close();
     }
-    // heartbeat to detect disconnects (TODO reduce frequency, check if necessary)
-    if (!sentData) {
-      writeData(Ints.toByteArray(Constants.OPCODE_HEARTBEAT));
-    }
-    LOGGER.debug("Scheduling send for later in producer: {} for: consumer {}", producerId, consumerId);
-    EXECUTOR.schedule(this::sendData, Constants.PRODUCER_CH_SEND_INTERVAL, TimeUnit.MILLISECONDS);
   }
 
   private boolean hasData() {
@@ -85,6 +90,7 @@ class ProducerConnectionHandler extends SimpleChannelInboundHandler<Object> {
       if (this.currentIterator != null)  {
         this.currentIterator.close();
       }
+
       byte[] startingOffset = ProducerOffset.nextOffset(this.lastSentOffset);
       if (LOGGER.isTraceEnabled()) {
         LOGGER.trace("Next starting offset: {} in producer: {} for consumer: {}", ProducerOffset.toString(startingOffset), producerId, consumerId);
