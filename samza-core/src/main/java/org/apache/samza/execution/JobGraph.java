@@ -94,10 +94,10 @@ import org.slf4j.LoggerFactory;
     JobGraphStageCalculator jgsc = new JobGraphStageCalculator(this);
     Map<String, Integer> streamIdToStage = jgsc.getStreamIdToStage();
     log.info("JOB GRAPH STAGE MAPPING: {}", streamIdToStage.toString());
-
-    if(!jgsc.validateStages()){
-      throw new SamzaException("Could not validate DAG for p2p.");
-    }
+//
+//    if(!jgsc.validateStages()){
+//      throw new SamzaException("Could not validate DAG for p2p.");
+//    }
 
     final String planJson = json;
     String stageJson = "";
