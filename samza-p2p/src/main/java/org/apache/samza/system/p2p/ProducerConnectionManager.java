@@ -75,6 +75,7 @@ public class ProducerConnectionManager {
     int flushConsolidationCount = config.getInt(Constants.P2P_PRODUCER_FLUSH_CONSOLIDATION_COUNT_CONFIG_KEY, 100);
     int lowWatermark = config.getInt(Constants.P2P_PRODUCER_WRITE_BUFFER_LOW_WATERMARK_BYTES_CONFIG_KEY, 32 * 1024);
     int highWatermark = config.getInt(Constants.P2P_PRODUCER_WRITE_BUFFER_HIGH_WATERMARK_BYTES_CONFIG_KEY, 64 * 1024);
+    boolean compressionEnabled = config.getBoolean(Constants.P2P_COMPRESSION_ENABLED_CONFIG_KEY, true);
 
     String channelType = config.get(Constants.P2P_PRODUCER_NETTY_CHANNEL_TYPE_CONFIG_KEY, "nio");
     ThreadFactory tf = new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Producer Netty ELG Thread-%d").build();
@@ -96,9 +97,17 @@ public class ProducerConnectionManager {
           @Override
           protected void initChannel(SocketChannel ch) {
             LOGGER.info("New channel initialized: {}", ch);
+
             ch.pipeline()
-                .addLast("flushConsolidationHandler", new FlushConsolidationHandler(flushConsolidationCount, true)) // todo tune, stable? can block indefinitely if no new write?
-                .addLast("snappyCompressor", new SnappyFrameEncoder()) // TODO do not need compression per message. batch?
+                // todo tune flush consolidation. can block indefinitely if no new write?
+                .addLast("flushConsolidationHandler", new FlushConsolidationHandler(flushConsolidationCount, true));
+
+            if (compressionEnabled) {
+              // TODO do not need compression per message. batch?
+              ch.pipeline().addLast("snappyCompressor", new SnappyFrameEncoder());
+            }
+
+            ch.pipeline()
                 .addLast("lengthFieldPrepender", new LengthFieldPrepender(4))
                 .addLast("byteArrayEncoder", new ByteArrayEncoder());
             // MessageAggregator

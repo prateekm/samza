@@ -54,6 +54,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       new ThreadFactoryBuilder().setDaemon(true).setNameFormat("P2P Consumer Netty Worker ELG Thread-%d").build());
 
   private final int consumerId;
+  private final Config config;
   private final ConsumerLocalityManager consumerLocalityManager;
   private final MessageSink messageSink;
   private final AtomicReferenceArray<ProducerOffset> producerOffsets;
@@ -63,6 +64,7 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
       ConsumerLocalityManager consumerLocalityManager) {
     super(metricsRegistry, clock);
     this.consumerId = consumerId;
+    this.config = config;
     this.consumerLocalityManager = consumerLocalityManager;
     this.messageSink = new MessageSink(this);
 
@@ -103,6 +105,8 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
   }
 
   private ServerBootstrap createBootstrap(int consumerId) {
+    boolean compressionEnabled = config.getBoolean(Constants.P2P_COMPRESSION_ENABLED_CONFIG_KEY, true);
+
     ServerBootstrap bootstrap = new ServerBootstrap();
     bootstrap.group(BOSS_GROUP, WORKER_GROUP)
         .channel(NioServerSocketChannel.class) // use epoll socket channel?
@@ -110,8 +114,11 @@ public class P2PSystemConsumer extends BlockingEnvelopeMap {
           @Override
           public void initChannel(SocketChannel ch) {
             LOGGER.debug("New channel initialized: {}", ch);
+            if (compressionEnabled) {
+              ch.pipeline()
+                  .addLast("snappyDecompressor", new SnappyFrameDecoder()); // todo only useful if batching, maybe disable until then.
+            }
             ch.pipeline()
-                .addLast("snappyDecompressor", new SnappyFrameDecoder()) // todo only useful if batching, maybe disable until then.
                 .addLast("frameDecoder", new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4))
                 .addLast("byteArrayDecoder", new ByteArrayDecoder())
                 .addLast(new ConsumerConnectionHandler(consumerId, producerOffsets, messageSink));
