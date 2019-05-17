@@ -31,6 +31,7 @@ import org.rocksdb.WriteOptions;
 
 public class Constants {
   public static final String P2P_SYSTEM_NAME = "p2p"; // hardcode to p2p
+  public static final String P2P_INPUT_STAGES_CONFIG_KEY = "p2p.input.stages"; // Todo not used for write in samza-core
   public static final String P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY = "p2p.input.num.partitions";
   public static final String P2P_COMPRESSION_ENABLED_CONFIG_KEY = "p2p.compression.enabled";
   public static final String P2P_PRODUCER_NETTY_CHANNEL_TYPE_CONFIG_KEY = "p2p.producer.netty.channel.type"; // epoll, nio

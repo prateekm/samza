@@ -19,6 +19,7 @@
 
 package org.apache.samza.execution;
 
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,13 +31,16 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.samza.SamzaException;
 import org.apache.samza.application.descriptors.ApplicationDescriptor;
 import org.apache.samza.application.descriptors.ApplicationDescriptorImpl;
 import org.apache.samza.config.ApplicationConfig;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.JobConfig;
+import org.apache.samza.config.MapConfig;
 import org.apache.samza.system.StreamSpec;
 import org.apache.samza.table.descriptors.TableDescriptor;
+import org.codehaus.jackson.map.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,8 +90,30 @@ import org.slf4j.LoggerFactory;
       log.warn("Failed to generate plan JSON", e);
     }
 
+
+    JobGraphStageCalculator jgsc = new JobGraphStageCalculator(this);
+    Map<String, Integer> streamIdToStage = jgsc.getStreamIdToStage();
+    log.info("JOB GRAPH STAGE MAPPING: {}", streamIdToStage.toString());
+
+    if(!jgsc.validateStages()){
+      throw new SamzaException("Could not validate DAG for p2p.");
+    }
+
     final String planJson = json;
-    return getJobNodes().stream().map(n -> n.generateConfig(planJson)).collect(Collectors.toList());
+    String stageJson = "";
+    try {
+       stageJson = new ObjectMapper().writeValueAsString(streamIdToStage);
+    } catch (IOException e) {
+      throw new SamzaException("Error serializing stage map.");
+    }
+    final String finalStageJson = stageJson;
+
+    return getJobNodes().stream().map(n -> {
+      JobConfig jobConfig = n.generateConfig(planJson);
+      MapConfig mapConfig = new MapConfig(jobConfig);
+      mapConfig.put("p2p.input.stages", finalStageJson);
+      return new JobConfig(mapConfig);
+    }).collect(Collectors.toList());
   }
 
   @Override

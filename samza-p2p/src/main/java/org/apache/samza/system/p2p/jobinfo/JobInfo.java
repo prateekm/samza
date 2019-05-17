@@ -20,6 +20,7 @@ package org.apache.samza.system.p2p.jobinfo;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.samza.Partition;
+import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.JobConfig;
 import org.apache.samza.config.TaskConfig;
@@ -38,11 +40,17 @@ import org.apache.samza.job.model.JobModel;
 import org.apache.samza.job.model.TaskModel;
 import org.apache.samza.system.SystemStreamPartition;
 import org.apache.samza.system.p2p.Constants;
+import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jackson.type.TypeReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class JobInfo {
+  private static final Logger LOGGER = LoggerFactory.getLogger(JobInfo.class);
   private final Config config;
   private final Map<Integer, Integer> taskToContainerMapping;
   private final Map<Integer, Integer> p2pPartitionToTaskMapping;
+  private final Map<String, Integer> inputStages;
   private final JobModel jobModel;
 
   public JobInfo(Config config) {
@@ -50,6 +58,12 @@ public class JobInfo {
     this.taskToContainerMapping = new HashMap<>();
     this.p2pPartitionToTaskMapping = new HashMap<>();
     this.jobModel = createJobModel(); // also populates taskToContainerMapping and p2pPartitionToTaskMapping
+    try {
+      this.inputStages = new ObjectMapper().readValue(config.get(Constants.P2P_INPUT_STAGES_CONFIG_KEY), new TypeReference<Map<String, Integer>>(){});
+    } catch (IOException e) {
+      throw new SamzaException("Could not deserialize input stage map.");
+    }
+    LOGGER.info("INPUT STAGES: {}", inputStages.toString());
   }
 
   public int getNumPartitions() {
