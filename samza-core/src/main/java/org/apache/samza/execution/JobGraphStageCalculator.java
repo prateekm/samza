@@ -48,7 +48,7 @@ class JobGraphStageCalculator {
   private void computePredecessorsAndSinks(OperatorSpec opSpec) {
     Collection<OperatorSpec> nextOpSpecs = opSpec.getRegisteredOperatorSpecs();
 
-    if(opSpec instanceof PartitionByOperatorSpec) {
+    if (opSpec instanceof PartitionByOperatorSpec) {
       PartitionByOperatorSpec pBSpec = ((PartitionByOperatorSpec) opSpec);
       nextOpSpecs.add(streamidToInputOpSpec.get(pBSpec.getOutputStream().getStreamId()));
     }
@@ -58,7 +58,7 @@ class JobGraphStageCalculator {
         opSpecToPredecessors.put(opSpec, spec);
       });
     }
-    if(nextOpSpecs.size() == 0 && !(opSpec instanceof SendToTableOperatorSpec)) {
+    if (nextOpSpecs.size() == 0) {
       sinks.add(opSpec);
     }
     nextOpSpecs.forEach(spec -> {
@@ -96,7 +96,23 @@ class JobGraphStageCalculator {
   }
 
   public boolean validateStages() {
+    if (streamIdToStage.size() == 0) {
+      return true;
+    }
     return validateParitionByStages() && validateJoinStages();
+  }
+
+  private InputOperatorSpec findInputStream(OperatorSpec opSpec) {
+    OperatorSpec currentPredecessor = opSpec;
+    while (! (currentPredecessor instanceof InputOperatorSpec)) {
+      Collection<OperatorSpec> nextPredecessors = opSpecToPredecessors.get(currentPredecessor);
+      if (nextPredecessors.size() == 1) {
+        currentPredecessor = nextPredecessors.stream().findFirst().orElse(null);
+      } else { // is a join operator
+        currentPredecessor = joinOpSpecToPredInputOpSpecs.get(currentPredecessor).stream().findFirst().orElse(null);
+      }
+    }
+    return (InputOperatorSpec) currentPredecessor;
   }
 
   private boolean validateParitionByStages() {
@@ -110,7 +126,10 @@ class JobGraphStageCalculator {
     });
     opSpecToPredecessors.forEach((opSpec, predecessor) -> {
       if(opSpec instanceof PartitionByOperatorSpec) {
-        partitionbyToIOStreams.put(opSpec, Pair.of(predecessor, paritionbyToOutputStreams.get(opSpec)));
+        InputOperatorSpec inputStream = findInputStream(predecessor);
+        if (inputStream != null) {
+          partitionbyToIOStreams.put(opSpec, Pair.of(inputStream, paritionbyToOutputStreams.get(opSpec)));
+        }
       }
     });
 
@@ -127,6 +146,10 @@ class JobGraphStageCalculator {
   }
 
   private boolean validateJoinStages() {
+    if (joinOpSpecToPredInputOpSpecs.size() == 0) {
+      return true;
+    }
+
     HashMap<OperatorSpec, Collection<InputOperatorSpec>> joinOpToInputCollection = new HashMap<>();
 
     for (OperatorSpec joinOp: joinOpSpecToPredInputOpSpecs.keySet()) {
