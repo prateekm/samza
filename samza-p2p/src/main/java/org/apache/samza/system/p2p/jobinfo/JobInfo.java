@@ -33,7 +33,6 @@ import org.apache.samza.Partition;
 import org.apache.samza.SamzaException;
 import org.apache.samza.config.Config;
 import org.apache.samza.config.JobConfig;
-import org.apache.samza.config.TaskConfig;
 import org.apache.samza.container.TaskName;
 import org.apache.samza.job.model.ContainerModel;
 import org.apache.samza.job.model.JobModel;
@@ -48,22 +47,17 @@ import org.slf4j.LoggerFactory;
 public class JobInfo {
   private static final Logger LOGGER = LoggerFactory.getLogger(JobInfo.class);
   private final Config config;
-  private final Map<Integer, Integer> taskToContainerMapping;
-  private final Map<Integer, Integer> p2pPartitionToTaskMapping;
-  private final Map<String, Integer> inputStages;
+  private final Map<SystemStreamPartition, TaskName> sspToTaskMapping;
+  private final Map<TaskName, Integer> taskToContainerMapping;
+  private final Map<Integer, List<String>> stageInputs;
   private final JobModel jobModel;
 
   public JobInfo(Config config) {
     this.config = config;
+    this.stageInputs = getStagedInputs(config);
+    this.sspToTaskMapping = new HashMap<>();
     this.taskToContainerMapping = new HashMap<>();
-    this.p2pPartitionToTaskMapping = new HashMap<>();
-    this.jobModel = createJobModel(); // also populates taskToContainerMapping and p2pPartitionToTaskMapping
-    try {
-      this.inputStages = new ObjectMapper().readValue(config.get(Constants.P2P_INPUT_STAGES_CONFIG_KEY), new TypeReference<Map<String, Integer>>(){});
-    } catch (IOException e) {
-      throw new SamzaException("Could not deserialize input stage map.");
-    }
-    LOGGER.info("INPUT STAGES: {}", inputStages.toString());
+    this.jobModel = createJobModel(); // also populates taskToContainerMapping and sspToTaskMapping
   }
 
   public int getNumPartitions() {
@@ -78,47 +72,34 @@ public class JobInfo {
     int numContainers = config.getInt(JobConfig.JOB_CONTAINER_COUNT());
     int numInputPartitions = config.getInt(Constants.P2P_INPUT_NUM_PARTITIONS_CONFIG_KEY);
 
-    String[] taskInputs = config.get(TaskConfig.INPUT_STREAMS()).split(",");
-    List<String> p2pSystemStreams = new ArrayList<>();
-    List<String> inputSystemStreams = new ArrayList<>();
-    for (int i = 0; i < taskInputs.length; i++) {
-      if (taskInputs[i].startsWith(Constants.P2P_SYSTEM_NAME)) {
-        p2pSystemStreams.add(taskInputs[i]);
-      } else {
-        inputSystemStreams.add(taskInputs[i]);
+    Map<TaskName, TaskModel> taskModels = new HashMap<>();
+    for (Map.Entry<Integer, List<String>> stage : stageInputs.entrySet()) {
+      Integer stageId = stage.getKey();
+      List<String> stageInputs = stage.getValue();
+      for (int partition = 0; partition < numInputPartitions; partition++) {
+        TaskName taskName = new TaskName("Stage " + stageId + " Task " + partition);
+        Set<SystemStreamPartition> taskSSPs = new HashSet<>();
+        for (String stageInput : stageInputs) {
+          String inputSystemName = stageInput.split("\\.")[0];
+          String inputStreamName = stageInput.split("\\.")[1];
+          SystemStreamPartition ssp = new SystemStreamPartition(inputSystemName, inputStreamName, new Partition(partition));
+          taskSSPs.add(ssp);
+          sspToTaskMapping.put(ssp, taskName);
+        }
+        taskModels.put(taskName, new TaskModel(taskName, taskSSPs, new Partition(partition)));
       }
     }
 
     Map<String, ContainerModel> containerModels = new HashMap<>();
-    int taskNumber = 0;
-    int numSourceTasksPerContainer = numInputPartitions / numContainers;
     for (int containerId = 0; containerId < numContainers; containerId++) {
-      Map<TaskName, TaskModel> taskModels = new HashMap<>();
-      for (int j = 0; j < numSourceTasksPerContainer; j++) {
-        Set<SystemStreamPartition> inputSSPs = new HashSet<>();
-        int finalTaskNumber = taskNumber;
-        inputSystemStreams.forEach(ss -> {
-          String inputSystemName = ss.split("\\.")[0];
-          String inputStreamName = ss.split("\\.")[1];
-          inputSSPs.add(new SystemStreamPartition(inputSystemName, inputStreamName, new Partition(finalTaskNumber)));
-        });
-        TaskName sourceTaskName = new TaskName("Source " + taskNumber);
-        taskModels.put(sourceTaskName, new TaskModel(sourceTaskName, inputSSPs, new Partition(taskNumber)));
+      final int finalContainerId = containerId;
+      Map<TaskName, TaskModel> containerTaskModels = taskModels.entrySet().stream().filter(e -> {
+        Integer taskPartitionNumber = Integer.valueOf(e.getKey().getTaskName().split("\\s")[3]);
+        return taskPartitionNumber / numContainers == finalContainerId;
+      }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
-        Set<SystemStreamPartition> p2pSSPs = new HashSet<>();
-        p2pSystemStreams.forEach(ss -> {
-          String p2pSystemName = ss.split("\\.")[0];
-          String p2pStreamName = ss.split("\\.")[1];
-          p2pSSPs.add(new SystemStreamPartition(p2pSystemName, p2pStreamName, new Partition(finalTaskNumber)));
-        });
-        TaskName sinkTaskName = new TaskName("Sink " + taskNumber);
-        taskModels.put(sinkTaskName, new TaskModel(sinkTaskName, p2pSSPs, new Partition(taskNumber)));
-
-        p2pPartitionToTaskMapping.put(taskNumber, taskNumber); // TODO assumes p2p partition num == task num
-        taskToContainerMapping.put(taskNumber, containerId);
-        taskNumber++;
-      }
-      containerModels.put(String.valueOf(containerId), new ContainerModel(String.valueOf(containerId), taskModels));
+      containerTaskModels.forEach(((taskName, taskModel) -> taskToContainerMapping.put(taskName, finalContainerId)));
+      containerModels.put(String.valueOf(containerId), new ContainerModel(String.valueOf(containerId), containerTaskModels));
     }
 
     return new JobModel(config, containerModels);
@@ -135,8 +116,36 @@ public class JobInfo {
     return ByteBuffer.wrap(key).getInt() % getNumPartitions(); // TODO BLOCKER REVERT
   }
 
-  public int getConsumerFor(int partition) {
-    return taskToContainerMapping.get(p2pPartitionToTaskMapping.get(partition));
+  public int getConsumerFor(SystemStreamPartition ssp) {
+    return taskToContainerMapping.get(sspToTaskMapping.get(ssp));
+  }
+
+  private Map<Integer, List<String>> getStagedInputs(Config config) {
+    String content = config.get(Constants.P2P_INPUT_STAGES_CONFIG_KEY);
+    try {
+      Map<Integer, List<String>> stageInputs = new HashMap<>();
+      Map<String, Integer> inputStages = new ObjectMapper().readValue(content, new TypeReference<Map<String, Integer>>(){});
+      LOGGER.info("INPUT STAGES: {}", inputStages.toString());
+
+      for (Map.Entry<String, Integer> inputStage : inputStages.entrySet()) {
+        String currentInput = inputStage.getKey();
+        Integer currentStage = inputStage.getValue();
+        stageInputs.compute(currentStage, (stageId, inputs) -> {
+          if (inputs != null) {
+            inputs.add(currentInput);
+            return inputs;
+          } else {
+            ArrayList<String> list = new ArrayList<>();
+            list.add(currentInput);
+            return list;
+          }
+        });
+      }
+      LOGGER.info("STAGE INPUTS: {}", stageInputs.toString());
+      return stageInputs;
+    } catch (IOException e) {
+      throw new SamzaException("Could not deserialize input stage map from config: " + content);
+    }
   }
 
   @VisibleForTesting // used in tests only

@@ -165,7 +165,7 @@ public class P2PSystemProducer implements SystemProducer {
         .put(Ints.toByteArray(message.length)).put(message);
 
     senderTasks.add(taskName);
-    String destinationConsumerId = String.valueOf(jobInfo.getConsumerFor(partition));
+    String destinationConsumerId = String.valueOf(jobInfo.getConsumerFor(destinationSSP));
 
     /**
      * There are (at least) two concurrency issues we need to handle here (if job.container.thread.pool.size > 1
@@ -260,7 +260,7 @@ public class P2PSystemProducer implements SystemProducer {
         if (lastTaskSentOffset != null
             && ProducerOffset.compareTo(lastTaskSentOffset, lastTaskCheckpointedOffset) > 0) {
           LOGGER.info("Blocking flush for task: {} since destination ssp: {} in Consumer: {} lastSentOffset: {} is more than lastCheckpointedOffset: {}",
-              taskName, ssp, jobInfo.getConsumerFor(ssp.getPartition().getPartitionId()), lastTaskSentOffset, lastTaskCheckpointedOffset);
+              taskName, ssp, jobInfo.getConsumerFor(ssp), lastTaskSentOffset, lastTaskCheckpointedOffset);
           isUpToDate = false;
           break;
         }
