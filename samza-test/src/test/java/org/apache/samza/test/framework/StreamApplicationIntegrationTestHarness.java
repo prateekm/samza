@@ -175,6 +175,7 @@ public class StreamApplicationIntegrationTestHarness extends IntegrationTestHarn
     configMap.put("serializers.registry.string.class", "org.apache.samza.serializers.StringSerdeFactory");
     configMap.put("systems.kafka.samza.factory", "org.apache.samza.system.kafka.KafkaSystemFactory");
     configMap.put("systems.kafka.consumer.zookeeper.connect", zkConnect());
+    configMap.put("systems.kafka.consumer.enable.auto.commit", "false");
     configMap.put("systems.kafka.producer.bootstrap.servers", bootstrapUrl());
     configMap.put("systems.kafka.samza.key.serde", "string");
     configMap.put("systems.kafka.samza.msg.serde", "string");

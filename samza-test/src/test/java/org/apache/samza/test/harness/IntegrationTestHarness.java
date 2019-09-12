@@ -150,6 +150,7 @@ public class IntegrationTestHarness extends AbstractKafkaServerTestHarness {
     consumerProps.setProperty(AUTO_OFFSET_RESET_CONFIG, "earliest");
     consumerProps.setProperty(KEY_DESERIALIZER_CLASS_CONFIG, STRING_DESERIALIZER);
     consumerProps.setProperty(VALUE_DESERIALIZER_CLASS_CONFIG, BYTE_ARRAY_DESERIALIZER);
+    consumerProps.setProperty(ENABLE_AUTO_COMMIT_CONFIG, "false");
     return consumerProps;
   }
 
