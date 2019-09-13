@@ -215,8 +215,11 @@ public class StorageRecovery extends CommandLine {
       ContainerContext containerContext = new ContainerContextImpl(containerModel, new MetricsRegistryMap());
 
       ContainerStorageManager containerStorageManager =
-          new ContainerStorageManager(containerModel,
+          new ContainerStorageManager(
+              null, // TODO BLOCKER pmaheshw fix null CheckpointManager
+              containerModel,
               streamMetadataCache,
+              null, // TODO BLOCKER pmaheshw fix null SSPMetadataCahhe
               systemAdmins,
               changeLogSystemStreams,
               new HashMap<>(),
