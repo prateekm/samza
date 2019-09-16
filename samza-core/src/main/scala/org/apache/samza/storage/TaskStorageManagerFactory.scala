@@ -14,7 +14,8 @@ object TaskStorageManagerFactory {
              loggedStoreBaseDir: File, changelogPartition: Partition,
              config: Config, taskMode: TaskMode): TaskStorageManager = {
     if (new TaskConfig(config).getTransactionalStateEnabled()) {
-      throw new UnsupportedOperationException
+      new TransactionalStateTaskStorageManager(taskName, containerStorageManager, storeChangelogs, systemAdmins,
+        loggedStoreBaseDir, changelogPartition, taskMode)
     } else {
       new NonTransactionalStateTaskStorageManager(taskName, containerStorageManager, storeChangelogs, systemAdmins,
         loggedStoreBaseDir, changelogPartition)
