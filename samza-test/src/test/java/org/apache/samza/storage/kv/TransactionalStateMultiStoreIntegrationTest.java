@@ -67,7 +67,7 @@ import org.slf4j.LoggerFactory;
  */
 @RunWith(value = Parameterized.class)
 public class TransactionalStateMultiStoreIntegrationTest extends StreamApplicationIntegrationTestHarness {
-  @Parameterized.Parameters(name="hostAffinity={0}")
+  @Parameterized.Parameters(name = "hostAffinity={0}")
   public static Collection<Boolean> data() {
     return Arrays.asList(true, false);
   }
@@ -81,20 +81,20 @@ public class TransactionalStateMultiStoreIntegrationTest extends StreamApplicati
   private static final String STORE_1_CHANGELOG = "changelog1";
   private static final String STORE_2_CHANGELOG = "changelog2";
   private static final String LOGGED_STORE_BASE_DIR = new File(System.getProperty("java.io.tmpdir"), "logged-store").getAbsolutePath();
-  private static final Map<String, String> CONFIGS = new HashMap<String, String>() {{
-    put(JobCoordinatorConfig.JOB_COORDINATOR_FACTORY, "org.apache.samza.standalone.PassthroughJobCoordinatorFactory");
-    put(JobConfig.PROCESSOR_ID, "0");
-    put(TaskConfig.GROUPER_FACTORY, "org.apache.samza.container.grouper.task.GroupByContainerIdsFactory");
-    put(TaskConfig.CHECKPOINT_MANAGER_FACTORY, "org.apache.samza.checkpoint.kafka.KafkaCheckpointManagerFactory");
-    put(TaskConfig.COMMIT_MS, "-1"); // manual commit only
-    put(TaskConfig.TRANSACTIONAL_STATE_ENABLED, "true");
-    put(TaskConfig.TRANSACTIONAL_STATE_RETAIN_EXISTING_STATE, "true");
-    put(KafkaConfig.CHECKPOINT_REPLICATION_FACTOR(), "1");
-    put(JobConfig.JOB_LOGGED_STORE_BASE_DIR, LOGGED_STORE_BASE_DIR);
-  }};
+  private static final Map<String, String> CONFIGS = new HashMap<String, String>() { {
+      put(JobCoordinatorConfig.JOB_COORDINATOR_FACTORY, "org.apache.samza.standalone.PassthroughJobCoordinatorFactory");
+      put(JobConfig.PROCESSOR_ID, "0");
+      put(TaskConfig.GROUPER_FACTORY, "org.apache.samza.container.grouper.task.GroupByContainerIdsFactory");
+      put(TaskConfig.CHECKPOINT_MANAGER_FACTORY, "org.apache.samza.checkpoint.kafka.KafkaCheckpointManagerFactory");
+      put(TaskConfig.COMMIT_MS, "-1"); // manual commit only
+      put(TaskConfig.TRANSACTIONAL_STATE_ENABLED, "true");
+      put(TaskConfig.TRANSACTIONAL_STATE_RETAIN_EXISTING_STATE, "true");
+      put(KafkaConfig.CHECKPOINT_REPLICATION_FACTOR(), "1");
+      put(JobConfig.JOB_LOGGED_STORE_BASE_DIR, LOGGED_STORE_BASE_DIR);
+    } };
 
-  private static List<String> ACTUAL_INITIAL_STORE_CONTENTS = new ArrayList<>();
-  private static boolean CRASHED_ONCE = false;
+  private static List<String> actualInitialStoreContents = new ArrayList<>();
+  private static boolean crashedOnce = false;
 
   private final boolean hostAffinity;
 
@@ -107,8 +107,8 @@ public class TransactionalStateMultiStoreIntegrationTest extends StreamApplicati
   public void setUp() {
     super.setUp();
     // reset static state shared with task between each parameterized iteration
-    CRASHED_ONCE = false;
-    ACTUAL_INITIAL_STORE_CONTENTS = new ArrayList<>();
+    crashedOnce = false;
+    actualInitialStoreContents = new ArrayList<>();
     new FileUtil().rm(new File(LOGGED_STORE_BASE_DIR)); // always clear local store on startup
   }
 
@@ -200,7 +200,7 @@ public class TransactionalStateMultiStoreIntegrationTest extends StreamApplicati
     Assert.assertEquals(expectedChangelogMessages, changelogMessages);
 
     // verify the store contents during startup (this is after changelog verification to ensure init has completed)
-    Assert.assertEquals(expectedInitialStoreContents, ACTUAL_INITIAL_STORE_CONTENTS);
+    Assert.assertEquals(expectedInitialStoreContents, actualInitialStoreContents);
   }
 
   static class MyApplication implements TaskApplication {
@@ -241,7 +241,7 @@ public class TransactionalStateMultiStoreIntegrationTest extends StreamApplicati
       this.store = (KeyValueStore<String, String>) context.getTaskContext().getStore(STORE_1_NAME);
       KeyValueIterator<String, String> storeEntries = store.all();
       while (storeEntries.hasNext()) {
-        ACTUAL_INITIAL_STORE_CONTENTS.add(storeEntries.next().getValue());
+        actualInitialStoreContents.add(storeEntries.next().getValue());
       }
       storeEntries.close();
     }
@@ -253,8 +253,8 @@ public class TransactionalStateMultiStoreIntegrationTest extends StreamApplicati
       LOG.info("Received key: {}", key);
 
       if (key.endsWith("crash_once")) {  // endsWith allows :crash_once and crash_once
-        if (!CRASHED_ONCE) {
-          CRASHED_ONCE = true;
+        if (!crashedOnce) {
+          crashedOnce = true;
           coordinator.shutdown(TaskCoordinator.RequestScope.CURRENT_TASK);
         } else {
           return;

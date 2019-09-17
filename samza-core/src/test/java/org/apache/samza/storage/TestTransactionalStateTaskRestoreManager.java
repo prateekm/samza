@@ -195,10 +195,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -238,7 +238,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = "21";
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -254,10 +256,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -298,7 +300,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = "5";
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -314,10 +318,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -357,7 +361,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = null;
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -374,10 +380,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -435,10 +441,10 @@ public class TestTransactionalStateTaskRestoreManager {
         .thenReturn(mockCurrentStoreDir);
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -514,10 +520,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -595,10 +601,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -673,10 +679,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -720,7 +726,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = null;
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -756,10 +764,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -803,7 +811,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = null;
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -839,10 +849,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -887,7 +897,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = "5";
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -921,10 +933,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -969,7 +981,9 @@ public class TestTransactionalStateTaskRestoreManager {
 
     String changelog1CheckpointedOffset = "21";
     Map<SystemStreamPartition, String> mockCheckpointedChangelogOffset =
-        new HashMap<SystemStreamPartition, String>(){{put(changelog1SSP, changelog1CheckpointedOffset);}};
+        new HashMap<SystemStreamPartition, String>() { {
+          put(changelog1SSP, changelog1CheckpointedOffset);
+        } };
     Map<SystemStreamPartition, SystemStreamPartitionMetadata> mockCurrentChangelogOffsets =
         ImmutableMap.of(changelog1SSP, changelog1SSPMetadata);
 
@@ -1003,10 +1017,10 @@ public class TestTransactionalStateTaskRestoreManager {
 
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
 
     StoreActions storeActions = TransactionalStateTaskRestoreManager.getStoreActions(
         mockTaskModel, mockStoreEngines, mockStoreChangelogs, mockCheckpointedChangelogOffset,
@@ -1164,17 +1178,17 @@ public class TestTransactionalStateTaskRestoreManager {
     when(mockSystemAdmins.getSystemAdmin(eq(changelogSystemName))).thenReturn(mockSystemAdmin);
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
     Mockito.when(mockSystemAdmin.getOffsetsAfter(any()))
         .thenAnswer((Answer<Map<SystemStreamPartition, String>>) invocation -> {
-          Map<SystemStreamPartition, String> offsets = (Map<SystemStreamPartition, String>) invocation.getArguments()[0];
-          Map<SystemStreamPartition, String> nextOffsets = new HashMap<>();
-          offsets.forEach((ssp, offset) -> nextOffsets.put(ssp, Long.toString(Long.valueOf(offset) + 1)));
-          return nextOffsets;
-        });
+            Map<SystemStreamPartition, String> offsets = (Map<SystemStreamPartition, String>) invocation.getArguments()[0];
+            Map<SystemStreamPartition, String> nextOffsets = new HashMap<>();
+            offsets.forEach((ssp, offset) -> nextOffsets.put(ssp, Long.toString(Long.valueOf(offset) + 1)));
+            return nextOffsets;
+          });
 
     SystemConsumer mockSystemConsumer = mock(SystemConsumer.class);
     Map<String, SystemConsumer> mockStoreConsumers = ImmutableMap.of(
@@ -1229,17 +1243,17 @@ public class TestTransactionalStateTaskRestoreManager {
     when(mockSystemAdmins.getSystemAdmin(eq(changelogSystemName))).thenReturn(mockSystemAdmin);
     Mockito.when(mockSystemAdmin.offsetComparator(anyString(), anyString()))
         .thenAnswer((Answer<Integer>) invocation -> {
-          String offset1 = (String) invocation.getArguments()[0];
-          String offset2 = (String) invocation.getArguments()[1];
-          return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
-        });
+            String offset1 = (String) invocation.getArguments()[0];
+            String offset2 = (String) invocation.getArguments()[1];
+            return Long.valueOf(offset1).compareTo(Long.valueOf(offset2));
+          });
     Mockito.when(mockSystemAdmin.getOffsetsAfter(any()))
         .thenAnswer((Answer<Map<SystemStreamPartition, String>>) invocation -> {
-          Map<SystemStreamPartition, String> offsets = (Map<SystemStreamPartition, String>) invocation.getArguments()[0];
-          Map<SystemStreamPartition, String> nextOffsets = new HashMap<>();
-          offsets.forEach((ssp, offset) -> nextOffsets.put(ssp, Long.toString(Long.valueOf(offset) + 1)));
-          return nextOffsets;
-        });
+            Map<SystemStreamPartition, String> offsets = (Map<SystemStreamPartition, String>) invocation.getArguments()[0];
+            Map<SystemStreamPartition, String> nextOffsets = new HashMap<>();
+            offsets.forEach((ssp, offset) -> nextOffsets.put(ssp, Long.toString(Long.valueOf(offset) + 1)));
+            return nextOffsets;
+          });
 
     SystemConsumer mockSystemConsumer = mock(SystemConsumer.class);
     Map<String, SystemConsumer> mockStoreConsumers = ImmutableMap.of("store1", mockSystemConsumer);

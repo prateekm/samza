@@ -210,9 +210,9 @@ public class TestTransactionalStateTaskStorageManager {
 
     when(metadata.getNewestOffset()).thenReturn(newestChangelogSSPOffset);
     when(systemAdmins.getSystemAdmin(changelogSystemName)).thenReturn(systemAdmin);
-    java.util.Map metadataMap = new HashMap() {{
-      put(changelogSSP, null);
-    }};
+    java.util.Map metadataMap = new HashMap() { {
+        put(changelogSSP, null);
+      } };
     when(systemAdmin.getSSPMetadata(eq(ImmutableSet.of(changelogSSP)))).thenReturn(metadataMap);
 
     // invoke the method

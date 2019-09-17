@@ -634,18 +634,18 @@ public class ContainerStorageManager {
     Map<SystemStreamPartition, String> checkpointedChangelogSSPOffsets = new HashMap<>();
     if (new TaskConfig(config).getTransactionalStateEnabled()) {
       getTasks(containerModel, TaskMode.Active).forEach((taskName, taskModel) -> {
-        if (checkpointManager != null) {
-          Set<SystemStream> changelogSystemStreams = new HashSet<>(this.changelogSystemStreams.values());
-          Checkpoint checkpoint = checkpointManager.readLastCheckpoint(taskName);
-          if (checkpoint != null) {
-            checkpoint.getOffsets().forEach((ssp, offset) -> {
-              if (changelogSystemStreams.contains(new SystemStream(ssp.getSystem(), ssp.getStream()))) {
-                checkpointedChangelogSSPOffsets.put(ssp, offset);
-              }
-            });
+          if (checkpointManager != null) {
+            Set<SystemStream> changelogSystemStreams = new HashSet<>(this.changelogSystemStreams.values());
+            Checkpoint checkpoint = checkpointManager.readLastCheckpoint(taskName);
+            if (checkpoint != null) {
+              checkpoint.getOffsets().forEach((ssp, offset) -> {
+                  if (changelogSystemStreams.contains(new SystemStream(ssp.getSystem(), ssp.getStream()))) {
+                    checkpointedChangelogSSPOffsets.put(ssp, offset);
+                  }
+                });
+            }
           }
-        }
-      });
+        });
     }
     LOG.info("Checkpointed changelog ssp offsets: {}", checkpointedChangelogSSPOffsets);
     restoreStores(checkpointedChangelogSSPOffsets);
@@ -659,7 +659,7 @@ public class ContainerStorageManager {
     LOG.info("Store Restore started");
 
     // initialize each TaskStorageManager
-   this.taskRestoreManagers.values().forEach(taskStorageManager ->
+    this.taskRestoreManagers.values().forEach(taskStorageManager ->
        taskStorageManager.init(checkpointedChangelogSSPOffsets));
 
     // Start each store consumer once
